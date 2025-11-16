@@ -181,8 +181,13 @@ def run_game():
 
         # Cleanup
         projectiles = [b for b in projectiles if b.is_active]
-        player_fleet = [s for s in player_fleet if s.health > 0.0]
         enemy_fleet = [s for s in enemy_fleet if s.health > 0.0]
+        player_fleet = [s for s in player_fleet if s.health > 0.0]
+        # --- End game when mothership dies ---
+        if main_player.health <= 0:
+            from end_screen import end_screen
+            end_screen()
+            return
 
         # --- Collisions (residual): small damage from touching using class-level DPS ---
         for _ in range(SEPARATION_ITER):
