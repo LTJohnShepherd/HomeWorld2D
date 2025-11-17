@@ -1,6 +1,6 @@
 import pygame
 from pygame.math import Vector2
-from fleet_unit import SpaceUnit, PirateFrigate, Mothership, Interceptor
+from fleet_unit import SpaceUnit, PirateFrigate, Mothership, Frigate, Interceptor
 from mover import Mover
 from projectile import Projectile
 from hangar_ui import HangarUI
@@ -27,9 +27,10 @@ def run_game():
     # --- Main player (Mothership with hangar) ---
     main_player = Mothership((400, 300))
 
-    # Player fleet initially only contains the rectangle
-    player_fleet = [main_player]
-
+    player_fleet = [
+        main_player,
+        Frigate((500, 400))
+        ]
 
     enemy_fleet = [
         PirateFrigate((100, 100)),
@@ -55,6 +56,9 @@ def run_game():
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # First let the hangar UI handle deploy/recall buttons and preview toggles.
                 clicked_ui = hangar_interface.handle_mouse_button_down(event.pos, main_player, player_fleet)
+
+                if not clicked_ui:
+                    hangar_interface.close_all_previews()
 
                 # Start selection if clicked elsewhere
                 if not clicked_ui:

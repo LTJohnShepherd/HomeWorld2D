@@ -1,10 +1,10 @@
-
+from abc import ABC, abstractmethod
 import pygame
 from mover import Mover
 from pygame.math import Vector2
 import math
 
-class SpaceUnit:
+class SpaceUnit(ABC):
     # ---- Class-level defaults for player shapes ----
     DEFAULT_COLOR = (255, 200, 0)
     DEFAULT_SPEED = 300.0
@@ -13,11 +13,16 @@ class SpaceUnit:
     DEFAULT_FIRE_COOLDOWN = 0.55
     DEFAULT_BULLET_DAMAGE = 12.0
 
-    # Collision damage per second when touching (applies to all shapes)
     COLLISION_DPS = 20.0
 
-    def __init__(self, start_pos, ship_size=(60, 30), *, color=None, speed=None, rotation_speed=None,
-                 is_enemy=False, fire_range=None, fire_cooldown=None, bullet_damage=None):
+    @abstractmethod
+    def shape_id(self):
+        """Abstract marker so this class cannot be instantiated."""
+        pass
+
+    def __init__(self, start_pos, ship_size=(60, 30), *, color=None, speed=None,
+                 rotation_speed=None, is_enemy=False, fire_range=None,
+                 fire_cooldown=None, bullet_damage=None):
         
         # resolve defaults from class
         self.ship_size = ship_size
@@ -153,7 +158,6 @@ class SpaceUnit:
 
 
 class PirateFrigate(SpaceUnit):
-
     # ---- Enemy defaults ----
     DEFAULT_COLOR = (220, 60, 60)
     DEFAULT_SPEED = 140.0
@@ -161,6 +165,9 @@ class PirateFrigate(SpaceUnit):
     DEFAULT_FIRE_RANGE = 260.0
     DEFAULT_FIRE_COOLDOWN = 0.8
     DEFAULT_BULLET_DAMAGE = 10.0
+
+    def shape_id(self):
+        return "pirate"
 
     def __init__(self, start_pos, size=(60, 30), **kwargs):
         # Force enemy flags/defaults but allow explicit overrides via kwargs
@@ -175,6 +182,10 @@ class PirateFrigate(SpaceUnit):
 
 class Mothership(SpaceUnit):
     """Main player-controlled rectangle with a 3-slot hangar."""
+
+    def shape_id(self):
+        return "mothership"
+
     def __init__(self, start_pos, **kwargs):
         super().__init__(start_pos, ship_size=(80, 40), **kwargs)
 
@@ -206,9 +217,22 @@ class Mothership(SpaceUnit):
         self.deployed.append(icpt)
         self.hangar_ships[slot] = icpt
         return icpt
-    
+
+class Frigate(SpaceUnit):
+    """Escort frigate for the mothership."""
+
+    def shape_id(self):
+        return "friagate"
+
+    def __init__(self, start_pos, **kwargs):
+        super().__init__(start_pos, ship_size=(70, 40), **kwargs)
+
 class Interceptor(SpaceUnit):
     """Small deployable interceptor light craft."""
+
+    def shape_id(self):
+        return "interceptor"
+
     def __init__(self, start_pos, **kwargs):
         super().__init__(start_pos, ship_size=(40, 40), **kwargs)
 

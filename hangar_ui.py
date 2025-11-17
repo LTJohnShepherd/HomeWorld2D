@@ -1,17 +1,35 @@
 import pygame
+from fleet_unit import Frigate
 
 class HangarUI:
     """Manages hangar light craft previews and deploy/recall buttons for the main ship."""
 
     def __init__(self, font, preview_size=40):
-        """Initialize hangar UI with a pygame font and preview size in pixels."""
         self.font = font
         self.preview_size = preview_size
-        # hard-coded preview slot positions along the bottom of the screen
+
+        # --- Unified preview row layout ---
+        row_y = 565
+
+        # --- Mothership preview (bigger, on the left) ---
+        self.mothership_preview = {
+            'preview_position': pygame.Vector2(60, row_y),
+            'width': 80,
+            'height': 50,
+        }
+
+        # --- Frigate preview (between mothership and interceptors) ---
+        self.frigate_preview = {
+            'preview_position': pygame.Vector2(170, row_y),
+            'width': 60,
+            'height': 35,
+        }
+
+        # --- 3 interceptor previews, evenly spaced to the right of the mothership ---
         self.hangar_slots = [
-            {'preview_position': pygame.Vector2(160, 565), 'show_button': False, 'button_rect': pygame.Rect(0, 0, 80, 25)},
-            {'preview_position': pygame.Vector2(320, 565), 'show_button': False, 'button_rect': pygame.Rect(0, 0, 80, 25)},
-            {'preview_position': pygame.Vector2(480, 565), 'show_button': False, 'button_rect': pygame.Rect(0, 0, 80, 25)},
+            {'preview_position': pygame.Vector2(260, row_y), 'show_button': False, 'button_rect': pygame.Rect(0, 0, 80, 25)},
+            {'preview_position': pygame.Vector2(360, row_y), 'show_button': False, 'button_rect': pygame.Rect(0, 0, 80, 25)},
+            {'preview_position': pygame.Vector2(460, row_y), 'show_button': False, 'button_rect': pygame.Rect(0, 0, 80, 25)},
         ]
 
     def handle_mouse_button_down(self, mouse_pos, main_player, player_shapes):
@@ -55,11 +73,92 @@ class HangarUI:
 
         return clicked_ui
 
+    def close_all_previews(self):
+        for slot in self.hangar_slots:
+            slot['show_button'] = False
+
     def draw(self, screen, main_player, player_shapes):
         """Draw hangar previews, health bars, and active deploy/recall buttons."""
         preview_size = self.preview_size
         font = self.font
+        
+        # --- Draw mothership preview (rectangle) ---
+        ms_center = self.mothership_preview['preview_position']
+        ms_w = self.mothership_preview['width']
+        ms_h = self.mothership_preview['height']
 
+        ms_surf = pygame.Surface((ms_w, ms_h), pygame.SRCALPHA)
+        pygame.draw.rect(ms_surf, main_player.color, pygame.Rect(0, 0, ms_w, ms_h), border_radius=4)
+
+        ms_x = int(ms_center.x - ms_w / 2)
+        ms_y = int(ms_center.y - ms_h / 2)
+        screen.blit(ms_surf, (ms_x, ms_y))
+
+        # --- Mothership health bar BELOW the preview ---
+        bar_w = ms_w
+        bar_h = 5
+        pad = 4
+        bar_x = ms_x
+        bar_y = ms_y + ms_h + pad
+
+        pct = 0.0
+        if main_player.max_health > 0:
+            pct = max(0.0, min(1.0, main_player.health / main_player.max_health))
+
+        bg_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+        pygame.draw.rect(screen, (40, 40, 40), bg_rect, border_radius=3)
+
+        fill_w = int(bar_w * pct + 0.5)
+        if fill_w > 0:
+            fill_color = (50, 200, 70) if pct >= 0.5 else (220, 70, 70)
+            fill_rect = pygame.Rect(bar_x, bar_y, fill_w, bar_h)
+            pygame.draw.rect(screen, fill_color, fill_rect, border_radius=3)
+
+        pygame.draw.rect(screen, (10, 10, 10), bg_rect, 1, border_radius=3)
+
+        # ---------------------------------------------------------
+        # --- Frigate preview (rectangle) ---
+        frigate = None
+        for s in player_shapes:
+            if isinstance(s, Frigate):
+                frigate = s
+                break
+
+        if frigate is not None and frigate.health > 0.0:
+            fr_center = self.frigate_preview['preview_position']
+            fr_w = self.frigate_preview['width']
+            fr_h = self.frigate_preview['height']
+
+            fr_surf = pygame.Surface((fr_w, fr_h), pygame.SRCALPHA)
+            pygame.draw.rect(fr_surf, frigate.color, pygame.Rect(0, 0, fr_w, fr_h), border_radius=4)
+
+            fr_x = int(fr_center.x - fr_w / 2)
+            fr_y = int(fr_center.y - fr_h / 2)
+            screen.blit(fr_surf, (fr_x, fr_y))
+
+            # Frigate health bar BELOW the preview
+            bar_w = fr_w
+            bar_h = 5
+            pad = 4
+            bar_x = fr_x
+            bar_y = fr_y + fr_h + pad
+
+            pct = 0.0
+            if frigate.max_health > 0:
+                pct = max(0.0, min(1.0, frigate.health / frigate.max_health))
+
+            bg_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+            pygame.draw.rect(screen, (40, 40, 40), bg_rect, border_radius=3)
+
+            fill_w = int(bar_w * pct + 0.5)
+            if fill_w > 0:
+                fill_color = (50, 200, 70) if pct >= 0.5 else (220, 70, 70)
+                fill_rect = pygame.Rect(bar_x, bar_y, fill_w, bar_h)
+                pygame.draw.rect(screen, fill_color, fill_rect, border_radius=3)
+
+            pygame.draw.rect(screen, (10, 10, 10), bg_rect, 1, border_radius=3)
+
+        # ---------------------------------------------------------
         # --- Draw hangar previews & deploy/recall buttons ---
         for i, hangar_slot in enumerate(self.hangar_slots):
             icpt_surf = pygame.Surface((preview_size, preview_size), pygame.SRCALPHA)
