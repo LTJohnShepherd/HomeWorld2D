@@ -190,9 +190,28 @@ class Mothership(SpaceUnit):
         super().__init__(start_pos, ship_size=(80, 40), **kwargs)
 
         # 3 hangar slots for light ships
-        self.hangar = [True, True, True]     # True = available
-        self.deployed = []                   # stores spawned Interceptor objects
-        self.hangar_ships = [None, None, None] # fighters for each slot (after deploy)
+        # True = interceptor in hangar (assigned & not currently deployed)
+        self.hangar = [False, False, False]
+        self.deployed = []                      # stores spawned Interceptor objects
+        self.hangar_ships = [None, None, None]  # fighters for each slot (after deploy)
+        self.last_selected_light_craft = None
+
+        # Persistent interceptor pool for fleet management (5 total for now)
+        if not hasattr(self, "interceptor_pool"):
+            self.interceptor_pool = [
+                {"id": i, "name": f"Interceptor {i+1}", "alive": True}
+                for i in range(5)
+            ]
+
+        # Which pool interceptor is assigned to each hangar slot (or None)
+        if not hasattr(self, "hangar_assignments"):
+            self.hangar_assignments = [None, None, None]
+            # Default: assign first interceptors to slots, up to 3
+            alive_ids = [e["id"] for e in self.interceptor_pool if e.get("alive", False)]
+            for slot in range(3):
+                if slot < len(alive_ids):
+                    self.hangar_assignments[slot] = alive_ids[slot]
+                    self.hangar[slot] = True
 
     def can_deploy(self, slot):
         return 0 <= slot < 3 and self.hangar[slot]
@@ -202,12 +221,17 @@ class Mothership(SpaceUnit):
         if not self.can_deploy(slot):
             return None
 
-        # Mark slot as used
+        # Mark slot as used (no interceptor in hangar now – one is deployed)
         self.hangar[slot] = False
+
+        # Determine which interceptor from the pool is assigned to this slot (if any)
+        interceptor_id = None
+        if hasattr(self, "hangar_assignments") and 0 <= slot < len(self.hangar_assignments):
+            interceptor_id = self.hangar_assignments[slot]
 
         # Spawn slightly in front of the rectangle
         offset = Vector2(50, 0).rotate(-self.angle)
-        icpt = Interceptor(self.pos + offset)
+        icpt = Interceptor(self.pos + offset, interceptor_id=interceptor_id)
         icpt.mover.angle = self.angle    # start facing same direction
 
         # Remember which slot this light craft came from
@@ -217,6 +241,7 @@ class Mothership(SpaceUnit):
         self.deployed.append(icpt)
         self.hangar_ships[slot] = icpt
         return icpt
+
 
 class Frigate(SpaceUnit):
     """Escort frigate for the mothership."""
@@ -233,8 +258,11 @@ class Interceptor(SpaceUnit):
     def shape_id(self):
         return "interceptor"
 
-    def __init__(self, start_pos, **kwargs):
+    def __init__(self, start_pos, interceptor_id=None, **kwargs):
         super().__init__(start_pos, ship_size=(40, 40), **kwargs)
+
+        # id in the mothership's interceptor pool (if any)
+        self.interceptor_id = interceptor_id
 
         # create triangle surface
         self.base_surf = pygame.Surface((40, 40), pygame.SRCALPHA)

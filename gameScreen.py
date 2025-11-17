@@ -4,6 +4,7 @@ from fleet_unit import SpaceUnit, PirateFrigate, Mothership, Frigate, Intercepto
 from mover import Mover
 from projectile import Projectile
 from hangar_ui import HangarUI
+from ui import Button
 import sys
 
 SEPARATION_ITER = 2  # How many times to push shapes apart when they overlap
@@ -14,7 +15,6 @@ def in_range(a, b, r): # Helper function: checks if the distance between objects
 
 def run_game():
     
-    pygame.init()
     screen = pygame.display.set_mode((800, 600))
     pygame.display.set_caption("SpaceGame")
 
@@ -23,6 +23,10 @@ def run_game():
     # --- Hangar UI setup ---
     font = pygame.font.SysFont(None, 20)
     hangar_interface = HangarUI(font)
+
+    # --- Fleet management button (top-left) ---
+    fleet_btn_font = pygame.font.SysFont(None, 24)
+    fleet_btn = Button((10, 10, 140, 30), "Fleet Mgmt", fleet_btn_font)
 
     # --- Main player (Mothership with hangar) ---
     main_player = Mothership((400, 300))
@@ -33,7 +37,7 @@ def run_game():
         ]
 
     enemy_fleet = [
-        PirateFrigate((100, 100)),
+        #PirateFrigate((100, 100)),
         #PirateFrigate((700, 120)),
         #PirateFrigate((120, 500)),
     ]
@@ -54,7 +58,14 @@ def run_game():
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 return
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                # First let the hangar UI handle deploy/recall buttons and preview toggles.
+                # First: fleet management button
+                if fleet_btn.handle_event(event):
+                    from fleet_management import fleet_management_screen
+                    fleet_management_screen(main_player, player_fleet)
+                    # after returning, skip further handling of this click
+                    continue
+
+                # Then let the hangar UI handle deploy/recall buttons and preview toggles.
                 clicked_ui = hangar_interface.handle_mouse_button_down(event.pos, main_player, player_fleet)
 
                 if not clicked_ui:
@@ -185,8 +196,31 @@ def run_game():
 
         # Cleanup
         projectiles = [b for b in projectiles if b.is_active]
+
+        # Update interceptor pool for any interceptors that died this frame
+        dead_interceptors = [
+            s for s in player_fleet
+            if isinstance(s, Interceptor) and s.health <= 0.0
+        ]
+        for icpt in dead_interceptors:
+            interceptor_id = getattr(icpt, "interceptor_id", None)
+            if interceptor_id is not None and hasattr(main_player, "interceptor_pool"):
+                for entry in main_player.interceptor_pool:
+                    if entry.get("id") == interceptor_id:
+                        entry["alive"] = False
+                        break
+
+            slot = getattr(icpt, "hangar_slot", None)
+            if slot is not None and 0 <= slot < len(main_player.hangar):
+                # this slot now has no interceptor (it died)
+                main_player.hangar[slot] = False
+                main_player.hangar_ships[slot] = None
+                if hasattr(main_player, "hangar_assignments"):
+                    main_player.hangar_assignments[slot] = None
+
         enemy_fleet = [s for s in enemy_fleet if s.health > 0.0]
         player_fleet = [s for s in player_fleet if s.health > 0.0]
+
         # --- End game when mothership dies ---
         if main_player.health <= 0:
             from end_screen import end_screen
@@ -237,5 +271,8 @@ def run_game():
 
         # --- Draw hangar previews & deploy/recall buttons ---
         hangar_interface.draw(screen, main_player, player_fleet)
+
+        # --- Draw fleet management button ---
+        fleet_btn.draw(screen)
 
         pygame.display.flip()

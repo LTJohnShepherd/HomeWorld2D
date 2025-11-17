@@ -167,17 +167,23 @@ class HangarUI:
             icpts = getattr(main_player, 'hangar_ships', [None, None, None])
             fighter_ship = icpts[i] if i < len(icpts) else None
 
+            # If this slot has neither an interceptor in hangar nor a live one deployed,
+            # do not show a preview at all (this lets you have 0/1/2/3 previews).
+            fighter_alive = (
+                fighter_ship is not None and
+                fighter_ship in player_shapes and
+                fighter_ship.health > 0.0
+            )
+            if not main_player.hangar[i] and not fighter_alive:
+                hangar_slot['show_button'] = False
+                continue
+
             if main_player.hangar[i]:
-                # In hangar: show grey light craft
+                # In hangar: show grey light craft (available for deployment)
                 color = (120, 120, 120)
             else:
-                # Deployed: show real color if the light craft is alive
-                if fighter_ship is not None and fighter_ship in player_shapes and fighter_ship.health > 0.0:
-                    color = fighter_ship.color
-                else:
-                    # No live light craft for this slot -> dark grey, also no button
-                    color = (60, 60, 60)
-                    hangar_slot['show_button'] = False
+                # Deployed: show real color while alive
+                color = fighter_ship.color if fighter_alive else (60, 60, 60)
 
             pygame.draw.polygon(
                 icpt_surf,
@@ -190,7 +196,7 @@ class HangarUI:
             screen.blit(icpt_surf, (preview_x, preview_y))
 
             # Health bar under preview when deployed and alive
-            if fighter_ship is not None and fighter_ship in player_shapes and fighter_ship.health > 0.0:
+            if fighter_alive:
                 bar_w = preview_size
                 bar_h = 5
                 pad = 4
