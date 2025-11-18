@@ -1,10 +1,10 @@
 import sys
 import pygame
-from fleet_unit import Mothership, Frigate, Interceptor
+from fleet_unit import ExpeditionShip, Frigate, Interceptor
 from ui import Button
 
 
-def fleet_management_screen(main_player: Mothership, player_fleet):
+def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
     """
     Fleet management screen:
     - 3 slots in a vertical column.
@@ -42,7 +42,7 @@ def fleet_management_screen(main_player: Mothership, player_fleet):
         main_player.hangar_assignments = [None, None, None]
 
     # Layout for previews
-    # Mothership (left) - slightly larger
+    # ExpeditionShip (left) - slightly larger
     ms_w, ms_h = 140, 160
     ms_rect = pygame.Rect(60, height // 2 - ms_h // 2, ms_w, ms_h)
 
@@ -172,8 +172,8 @@ def fleet_management_screen(main_player: Mothership, player_fleet):
         label_height = label_font.size("M")[1]
         labels_y = fleet_title_bottom + (previews_top - fleet_title_bottom - label_height) // 2
 
-        # ===== LEFT: Mothership preview =====
-        ms_label = label_font.render("Mothership", True, (220, 220, 220))
+        # ===== LEFT: ExpeditionShip preview =====
+        ms_label = label_font.render("ExpeditionShip", True, (220, 220, 220))
         ms_label_x = ms_rect.centerx - ms_label.get_width() // 2
         ms_label_y = labels_y
         screen.blit(ms_label, (ms_label_x, ms_label_y))

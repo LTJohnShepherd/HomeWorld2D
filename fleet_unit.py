@@ -180,11 +180,11 @@ class PirateFrigate(SpaceUnit):
         kwargs.setdefault('bullet_damage', self.DEFAULT_BULLET_DAMAGE)
         super().__init__(start_pos, ship_size=size, **kwargs)
 
-class Mothership(SpaceUnit):
+class ExpeditionShip(SpaceUnit):
     """Main player-controlled rectangle with a 3-slot hangar."""
 
     def shape_id(self):
-        return "mothership"
+        return "expeditionship"
 
     def __init__(self, start_pos, **kwargs):
         super().__init__(start_pos, ship_size=(80, 40), **kwargs)
@@ -217,7 +217,7 @@ class Mothership(SpaceUnit):
         return 0 <= slot < 3 and self.hangar[slot]
 
     def deploy(self, slot):
-        """Spawn a light ship near the mothership, behaving like a normal spaceship."""
+        """Spawn a light ship near the ExpeditionShip, behaving like a normal spaceship."""
         if not self.can_deploy(slot):
             return None
 
@@ -244,7 +244,7 @@ class Mothership(SpaceUnit):
 
 
 class Frigate(SpaceUnit):
-    """Escort frigate for the mothership."""
+    """Escort frigate for the ExpeditionShip."""
 
     def shape_id(self):
         return "friagate"
@@ -261,7 +261,7 @@ class Interceptor(SpaceUnit):
     def __init__(self, start_pos, interceptor_id=None, **kwargs):
         super().__init__(start_pos, ship_size=(40, 40), **kwargs)
 
-        # id in the mothership's interceptor pool (if any)
+        # id in the ExpeditionShip's interceptor pool (if any)
         self.interceptor_id = interceptor_id
 
         # create triangle surface

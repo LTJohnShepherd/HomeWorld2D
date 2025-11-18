@@ -1,17 +1,76 @@
 import pygame
 from pygame.math import Vector2
-from fleet_unit import SpaceUnit, PirateFrigate, Mothership, Frigate, Interceptor
+from fleet_unit import SpaceUnit, PirateFrigate, ExpeditionShip, Frigate, Interceptor
 from mover import Mover
 from projectile import Projectile
 from hangar_ui import HangarUI
 from ui import Button
 import sys
+import math
 
 SEPARATION_ITER = 2  # How many times to push shapes apart when they overlap
 
-def in_range(a, b, r): # Helper function: checks if the distance between objects a and b is within range r
+def draw_triangle(surface, center, width, height, color, thickness=2):
+    size = width
+    cx, cy = int(center[0]), int(center[1])
 
+    h = size * math.sqrt(3) / 2  # height
+
+    left_tip    = (cx - 2 * h / 3, cy)
+    top_right   = (cx + h / 3,     cy - size / 2)
+    bottom_right = (cx + h / 3,    cy + size / 2)
+
+    pygame.draw.polygon(surface, color, [top_right, bottom_right, left_tip], thickness)
+
+def draw_diamond(surface, center, width, height, color, thickness=2):
+    cx, cy = int(center[0]), int(center[1])
+    hw = width * 0.5
+    hh = height * 0.5
+    points = [
+        (cx,     cy - hh),  # top
+        (cx + hw, cy),      # right
+        (cx,     cy + hh),  # bottom
+        (cx - hw, cy)      # left
+    ]
+    pygame.draw.polygon(surface, color, points, thickness)
+
+# --- hex helpers ---
+def draw_hex(surface, center, width, height, color, thickness=2):
+    cx, cy = int(center[0]), int(center[1])
+    hw = width * 0.5
+    hh = height * 0.5
+    inset = hw * 0.3
+
+    points = [
+        (cx - hw + inset, cy - hh),
+        (cx + hw - inset, cy - hh),
+        (cx + hw,         cy),
+        (cx + hw - inset, cy + hh),
+        (cx - hw + inset, cy + hh),
+        (cx - hw,         cy)
+    ]
+    pygame.draw.polygon(surface, color, points, thickness)
+
+
+def draw_hex_button(surface, button, font, base_color, hover_color, header_text):
+    rect = button.rect
+    mouse_pos = pygame.mouse.get_pos()
+    color = hover_color if rect.collidepoint(mouse_pos) else base_color
+
+    # hex body
+    draw_hex(surface, rect.center, rect.width * 0.9, rect.height * 1.2, color, 3)
+
+    # "INTERNAL" text at top-left of the hex
+    label = font.render(header_text, True, color)
+    label_rect = label.get_rect()
+    # slightly above and to the left of the hex body
+    label_rect.bottomleft = (rect.left, rect.top - 10)
+    surface.blit(label, label_rect)
+
+
+def in_range(a, b, r):  # Helper function: checks if the distance between objects a and b is within range r
     return (a.pos - b.pos).length_squared() <= r * r
+
 
 def run_game():
     
@@ -25,11 +84,11 @@ def run_game():
     hangar_interface = HangarUI(font)
 
     # --- Fleet management button (top-left) ---
-    fleet_btn_font = pygame.font.SysFont(None, 24)
-    fleet_btn = Button((10, 10, 140, 30), "Fleet Mgmt", fleet_btn_font)
+    fleet_btn_font = pygame.font.SysFont(None, 19)
+    fleet_btn = Button((10, 40, 100, 30), "INTERNAL", fleet_btn_font)
 
-    # --- Main player (Mothership with hangar) ---
-    main_player = Mothership((400, 300))
+    # --- Main player (ExpeditionShip with hangar) ---
+    main_player = ExpeditionShip((400, 300))
 
     player_fleet = [
         main_player,
@@ -46,7 +105,7 @@ def run_game():
 
     is_selecting = False # Flag that indicates if the player is currently dragging a selection box with the mouse
     selection_start = (0, 0) # The starting mouse position where the left button was first pressed (selection begins here)
-    selection_rect = pygame.Rect(0, 0, 0, 0) # Mothership used to visually and logically represent the drag-selection area
+    selection_rect = pygame.Rect(0, 0, 0, 0) # ExpeditionShip used to visually and logically represent the drag-selection area
 
     while True:
         dt = clock.tick(60) / 1000.0
@@ -221,7 +280,7 @@ def run_game():
         enemy_fleet = [s for s in enemy_fleet if s.health > 0.0]
         player_fleet = [s for s in player_fleet if s.health > 0.0]
 
-        # --- End game when mothership dies ---
+        # --- End game when ExpeditionShip dies ---
         if main_player.health <= 0:
             from end_screen import end_screen
             end_screen()
@@ -260,6 +319,35 @@ def run_game():
             spaceship.draw(screen, show_range=spaceship.selected)
         for enemy in enemy_fleet:
             enemy.draw(screen)
+        
+        for spaceship in player_fleet:
+            # diamond over frigate with same relative scale as ExpeditionShip hex
+            if isinstance(spaceship, Frigate):
+                ship_w, ship_h = spaceship.ship_size
+                draw_diamond(
+                    screen,
+                    (spaceship.pos.x, spaceship.pos.y),
+                    ship_w * 0.6,   # same width factor as ExpeditionShip hex
+                    ship_h * 1.4,     # same height factor as ExpeditionShip hex
+                    (80, 255, 190),
+                    2
+                )
+            # triangle over deployed interceptors
+            if isinstance(spaceship, Interceptor) and not getattr(spaceship, "recalling", False):
+                    ship_w, ship_h = spaceship.ship_size
+                    draw_triangle(
+                        screen,
+                        (spaceship.pos.x, spaceship.pos.y),
+                        ship_w * 1.2,   # Interceptor - relative to it's size
+                        ship_h * 1.0,
+                        (80, 255, 190),
+                        2
+                    )
+
+
+        # static outlined hex over the ExpeditionShip (does not rotate)
+        moth_center = (main_player.pos.x, main_player.pos.y)
+        draw_hex(screen, moth_center, 70, 32, (80, 255, 190), 3)
 
         for b in projectiles:
             b.draw(screen)
@@ -272,7 +360,10 @@ def run_game():
         # --- Draw hangar previews & deploy/recall buttons ---
         hangar_interface.draw(screen, main_player, player_fleet)
 
-        # --- Draw fleet management button ---
-        fleet_btn.draw(screen)
+        # --- Draw fleet management ("INTERNAL") button as hex ---
+        draw_hex_button(screen, fleet_btn, fleet_btn_font,
+                        base_color=(120, 200, 255),
+                        hover_color=(190, 230, 255),
+                        header_text="INTERNAL")
 
         pygame.display.flip()
