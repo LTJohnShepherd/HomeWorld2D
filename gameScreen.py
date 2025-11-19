@@ -68,14 +68,23 @@ def draw_hex_button(surface, button, font, base_color, hover_color, header_text)
     surface.blit(label, label_rect)
 
 
-def in_range(a, b, r):  # Helper function: checks if the distance between objects a and b is within range r
-    return (a.pos - b.pos).length_squared() <= r * r
-
+def in_range(a, b, r):
+    """
+    Return True if the targeting circle of radius r around 'a'
+    touches ANY part of ship 'b' (using b's bounding radius).
+    """
+    dist2 = (a.pos - b.pos).length_squared()
+    eff_r = r + b.bounding_radius()
+    return dist2 <= eff_r * eff_r
 
 def run_game():
     WIDTH, HEIGHT = 1280, 720
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("SpaceGame")
+
+    # --- Load skybox background ---
+    background_img = pygame.image.load("Images/Skybox.png").convert()
+    background_img = pygame.transform.smoothscale(background_img, (WIDTH, HEIGHT))
 
     clock = pygame.time.Clock()
 
@@ -97,7 +106,7 @@ def run_game():
 
     enemy_fleet = [
         #PirateFrigate((100, 100)),
-        #PirateFrigate((700, 120)),
+        PirateFrigate((700, 120)),
         #PirateFrigate((120, 500)),
     ]
 
@@ -314,7 +323,7 @@ def run_game():
                             Mover.separate_rotated(p, e)
 
         # --- Draw ---
-        screen.fill((20, 20, 26))
+        screen.blit(background_img, (0, 0))
         for spaceship in player_fleet:
             spaceship.draw(screen, show_range=spaceship.selected)
         for enemy in enemy_fleet:

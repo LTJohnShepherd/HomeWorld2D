@@ -5,6 +5,8 @@ from fleet_unit import Frigate
 EXPEDITION_PREVIEW_IMG = pygame.image.load("Previews/Carrier_T1_Preview.png")
 # preview sprite for Frigate
 FRIGATE_PREVIEW_IMG = pygame.image.load("Previews/Frigate_Preview.png")
+# preview sprite for Interceptor
+INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
 
 
 def draw_triangle(surface, center, width, height, color, thickness=2):
@@ -56,6 +58,11 @@ class HangarUI:
     def __init__(self, font, preview_size=40):
         self.font = font
         self.preview_size = preview_size
+
+        # pre-scaled interceptor preview sprite for hangar icons
+        self.interceptor_preview_img = pygame.transform.smoothscale(
+            INTERCEPTOR_PREVIEW_IMG, (preview_size, preview_size)
+        )
 
         # --- Unified preview row layout ---
         row_y = 630
@@ -136,12 +143,6 @@ class HangarUI:
         ms_w = self.expeditionship_preview['width']
         ms_h = self.expeditionship_preview['height']
 
-        ms_surf = pygame.transform.smoothscale(EXPEDITION_PREVIEW_IMG, (ms_w, ms_h))
-
-        ms_x = int(ms_center.x - ms_w / 2)
-        ms_y = int(ms_center.y - ms_h / 2)
-        screen.blit(ms_surf, (ms_x, ms_y))
-
         # Hex overlay, scaled similarly to gameScreen (relative to ship size)
         hex_w = ms_w * 0.875   # 70/80 like in gameScreen
         hex_h = ms_h * 0.8     # 32/40
@@ -153,6 +154,11 @@ class HangarUI:
             (80, 255, 190),
             3
         )
+
+        ms_surf = pygame.transform.smoothscale(EXPEDITION_PREVIEW_IMG, (ms_w, ms_h))
+        ms_x = int(ms_center.x - ms_w / 2)
+        ms_y = int(ms_center.y - ms_h / 2)
+        screen.blit(ms_surf, (ms_x, ms_y))
 
         # --- ExpeditionShip health bar BELOW the preview ---
         bar_w = ms_w
@@ -189,16 +195,6 @@ class HangarUI:
             fr_w = self.frigate_preview['width'] * 2
             fr_h = self.frigate_preview['height'] * 2
 
-            # use frigate preview image
-            fr_img = pygame.transform.smoothscale(
-                FRIGATE_PREVIEW_IMG,
-                (int(fr_w), int(fr_h))
-            )
-
-            fr_x = int(fr_center.x - fr_w / 2)
-            fr_y = int(fr_center.y - fr_h / 2)
-            screen.blit(fr_img, (fr_x, fr_y))
-
             # Diamond overlay, scaled with same proportions as in gameScreen
             draw_diamond(
                 screen,
@@ -208,6 +204,15 @@ class HangarUI:
                 (80, 255, 190),
                 2
             )
+
+            # use frigate preview image
+            fr_img = pygame.transform.smoothscale(
+                FRIGATE_PREVIEW_IMG,
+                (int(fr_w), int(fr_h))
+            )
+            fr_x = int(fr_center.x - fr_w / 2)
+            fr_y = int(fr_center.y - fr_h / 2)
+            screen.blit(fr_img, (fr_x, fr_y))
 
             # Frigate health bar BELOW the preview
             bar_w = fr_w * 0.6
@@ -234,8 +239,6 @@ class HangarUI:
         # ---------------------------------------------------------
         # --- Draw hangar previews & deploy/recall buttons ---
         for i, hangar_slot in enumerate(self.hangar_slots):
-            icpt_surf = pygame.Surface((preview_size, preview_size), pygame.SRCALPHA)
-
             # figure out which light craft (if any) is linked to this slot
             icpts = getattr(main_player, 'hangar_ships', [None, None, None])
             fighter_ship = icpts[i] if i < len(icpts) else None
@@ -251,24 +254,19 @@ class HangarUI:
                 hangar_slot['show_button'] = False
                 continue
 
+            # base interceptor preview image
+            icpt_surf = self.interceptor_preview_img.copy()
+
+            # if it's still in hangar, dim it slightly (replacement for old grey triangle)
+            icpt_surf = self.interceptor_preview_img.copy()
+
+            # if it's still in hangar, darken the ship sprite itself (no dark box)
             if main_player.hangar[i]:
-                # In hangar: show grey light craft (available for deployment)
-                color = (120, 120, 120)
-            else:
-                # Deployed: show real color while alive
-                color = fighter_ship.color if fighter_alive else (60, 60, 60)
+                dim = pygame.Surface(icpt_surf.get_size(), pygame.SRCALPHA)
+                dim.fill((128, 128, 128, 255))  # < 255 => darker
+                icpt_surf.blit(dim, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
-            pygame.draw.polygon(
-                icpt_surf,
-                color,
-                [(preview_size // 2, 0), (0, preview_size), (preview_size, preview_size)],
-            )
-
-            preview_x = hangar_slot['preview_position'].x - preview_size // 2
-            preview_y = hangar_slot['preview_position'].y - preview_size // 2
-            screen.blit(icpt_surf, (preview_x, preview_y))
-
-            # Triangle overlay over interceptor preview, like in gameScreen
+            # Triangle overlay over interceptor preview, like in gameScreen (KEEP GREEN TRIANGLES)
             icpt_center = (
                 hangar_slot['preview_position'].x,
                 hangar_slot['preview_position'].y
@@ -281,12 +279,16 @@ class HangarUI:
                 (80, 255, 190),
                 2
             )
+            
+            preview_x = hangar_slot['preview_position'].x - preview_size // 2
+            preview_y = hangar_slot['preview_position'].y - preview_size // 2
+            screen.blit(icpt_surf, (preview_x, preview_y))
 
             # Health bar under preview when deployed and alive
             if fighter_alive:
                 bar_w = preview_size
                 bar_h = 5
-                pad = 4
+                pad = 12
                 bar_x = preview_x
                 bar_y = preview_y + preview_size + pad
 

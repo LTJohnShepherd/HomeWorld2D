@@ -7,6 +7,8 @@ from ui import Button
 EXPEDITION_PREVIEW_IMG = pygame.image.load("Previews/Carrier_T1_Preview.png")
 # preview sprite for Frigate
 FRIGATE_PREVIEW_IMG = pygame.image.load("Previews/Frigate_Preview.png")
+# preview sprite for Interceptor (for light-craft slots)
+INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
 
 
 def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
@@ -14,7 +16,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
     Fleet management screen:
     - 3 slots in a vertical column.
     - Empty slot: hollow circle with '+'.
-    - Assigned slot: interceptor preview triangle drawn instead of the circle.
+    - Assigned slot: interceptor preview image drawn instead of the circle.
     - Clicking a slot opens a stored crafts screen:
         * "Clear slot" – frees the slot.
         * Alive interceptors from pool – assigns one to that slot.
@@ -153,12 +155,18 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                             else None
                         )
 
-                        # Opens the fleet selection screen
+                        # If an interceptor from this slot is currently deployed (alive),
+                        # do NOT allow changing its assignment.
+                        if fighter_ship is not None and fighter_ship.health > 0.0:
+                            break
+
+                        # Otherwise, open the selection screen for this slot
                         from light_craft_selection import light_craft_selection_screen
                         light_craft_selection_screen(main_player, idx)
                         selector_open_for = None
                         selector_items = []
                         break
+
 
         # ------------- DRAW -------------
         screen.fill((8, 8, 16))
@@ -214,18 +222,16 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                         assigned_entry = e
                         break
 
-            interceptor_color = Interceptor.DEFAULT_COLOR if hasattr(Interceptor, "DEFAULT_COLOR") else (230, 230, 230)
-
             if assigned_entry is not None:
-                # Triangle preview
+                # Interceptor preview image instead of triangle
                 r = circle_radius - 4
-                points = [
-                    (cx, cy - r),       # top
-                    (cx - r, cy + r),   # bottom left
-                    (cx + r, cy + r),   # bottom right
-                ]
-                pygame.draw.polygon(screen, interceptor_color, points)
-                pygame.draw.polygon(screen, (15, 15, 15), points, 2)
+                size = int(r * 2)
+                icpt_img = pygame.transform.smoothscale(
+                    INTERCEPTOR_PREVIEW_IMG,
+                    (size, size)
+                )
+                img_rect = icpt_img.get_rect(center=(cx, cy))
+                screen.blit(icpt_img, img_rect.topleft)
 
                 # NAME ABOVE craft (always, as long as an alive interceptor is assigned)
                 name_surf = label_font.render(assigned_entry.get("name", "Interceptor"), True, (220, 220, 255))
@@ -263,6 +269,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                 hb_x = cx - hb_w // 2
                 hb_y = cy + circle_radius + 6
                 draw_health_bar(hb_x, hb_y, hb_w, hb_h, fighter_ship.health, fighter_ship.max_health)
+
         # ===== RIGHT: Escort Frigate preview =====
         frigates = [s for s in player_fleet if isinstance(s, Frigate)]
 

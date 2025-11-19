@@ -166,16 +166,23 @@ class PirateFrigate(SpaceUnit):
     def shape_id(self):
         return "pirate"
 
-    def __init__(self, start_pos, size=(60, 30), **kwargs):
-        # Force enemy flags/defaults but allow explicit overrides via kwargs
-        kwargs.setdefault('color', self.DEFAULT_COLOR)
-        kwargs.setdefault('speed', self.DEFAULT_SPEED)
-        kwargs.setdefault('rotation_speed', self.DEFAULT_ROT_SPEED)
-        kwargs.setdefault('is_enemy', True)
-        kwargs.setdefault('fire_range', self.DEFAULT_FIRE_RANGE)
-        kwargs.setdefault('fire_cooldown', self.DEFAULT_FIRE_COOLDOWN)
-        kwargs.setdefault('bullet_damage', self.DEFAULT_BULLET_DAMAGE)
-        super().__init__(start_pos, ship_size=size, **kwargs)
+    def __init__(self, start_pos, **kwargs):
+        # load pirate sprite
+        sprite = pygame.image.load("Images/PirateCruiser.png").convert_alpha()
+
+        # rotate so it faces to the right (like other ships)
+        sprite = pygame.transform.rotate(sprite, -90)
+
+        # scale it down (adjust divisor for size)
+        scaled_sprite = pygame.transform.smoothscale(
+            sprite,
+            (sprite.get_width() // 6, sprite.get_height() // 6)
+        )
+
+        # use sprite size for collisions / drawing
+        super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
+        self.base_surf = scaled_sprite
+
 
 class ExpeditionShip(SpaceUnit):
     """Main player-controlled rectangle with a 3-slot hangar."""
@@ -187,7 +194,7 @@ class ExpeditionShip(SpaceUnit):
         # load sprite first
         sprite = pygame.image.load("Images/ExpeditionShip.png").convert_alpha()
 
-        # fix orientation (rotate 90 degrees counter-clockwise)
+        # fix orientation (rotate -90 degrees clockwise)
         sprite = pygame.transform.rotate(sprite, -90)
 
         # use sprite size instead of tiny rectangle
@@ -289,18 +296,23 @@ class Interceptor(SpaceUnit):
         return "interceptor"
 
     def __init__(self, start_pos, interceptor_id=None, **kwargs):
-        super().__init__(start_pos, ship_size=(40, 40), **kwargs)
+        # load interceptor sprite
+        sprite = pygame.image.load("Images/Interceptor.png").convert_alpha()
+        # rotate so it faces like the other ships (to the right at angle 0)
+        sprite = pygame.transform.rotate(sprite, -90)
+
+        # scale down (adjust factor if you want a different size)
+        scaled_sprite = pygame.transform.smoothscale(
+            sprite,
+            (sprite.get_width() // 24, sprite.get_height() // 24)
+        )
+
+        # use sprite size for collisions / drawing
+        super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
+        self.base_surf = scaled_sprite
 
         # id in the ExpeditionShip's interceptor pool (if any)
         self.interceptor_id = interceptor_id
-
-        # create triangle surface
-        self.base_surf = pygame.Surface((40, 40), pygame.SRCALPHA)
-        pygame.draw.polygon(
-            self.base_surf,
-            self.color,
-            [(20, 0), (0, 40), (40, 40)]
-        )
 
         # recall state
         self.recalling = False

@@ -4,6 +4,8 @@ import sys
 from ui import Button
 from fleet_unit import Interceptor
 
+INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
+
 def light_craft_selection_screen(main_player, slot_index: int):
     screen = pygame.display.get_surface()
     if screen is None:
@@ -176,13 +178,10 @@ def light_craft_selection_screen(main_player, slot_index: int):
             preview_x = rect.x + 40
             preview_y = rect.y + rect.height // 2
 
-            # triangle preview
-            tri_size = 32
-            p1 = (preview_x, preview_y - tri_size // 2)
-            p2 = (preview_x - tri_size // 2, preview_y + tri_size // 2)
-            p3 = (preview_x + tri_size // 2, preview_y + tri_size // 2)
-            pygame.draw.polygon(screen, Interceptor.DEFAULT_COLOR, [p1, p2, p3])
-            pygame.draw.polygon(screen, (15, 15, 15), [p1, p2, p3], 2)
+            # preview image instead of triangle
+            img = pygame.transform.smoothscale(INTERCEPTOR_PREVIEW_IMG, (48, 48))
+            rect_img = img.get_rect(center=(preview_x, preview_y))
+            screen.blit(img, rect_img.topleft)
 
             name = name_font.render(entry["name"], True, (230, 230, 255))
             screen.blit(name, (preview_x + 50, rect.y + 12))
@@ -210,13 +209,10 @@ def light_craft_selection_screen(main_player, slot_index: int):
             preview_x = rect.x + 40
             preview_y = rect.y + rect.height // 2
 
-            # triangle preview
-            tri_size = 32
-            p1 = (preview_x, preview_y - tri_size // 2)
-            p2 = (preview_x - tri_size // 2, preview_y + tri_size // 2)
-            p3 = (preview_x + tri_size // 2, preview_y + tri_size // 2)
-            pygame.draw.polygon(screen, Interceptor.DEFAULT_COLOR, [p1, p2, p3])
-            pygame.draw.polygon(screen, (15, 15, 15), [p1, p2, p3], 2)
+            # preview image instead of triangle
+            img = pygame.transform.smoothscale(INTERCEPTOR_PREVIEW_IMG, (48, 48))
+            rect_img = img.get_rect(center=(preview_x, preview_y))
+            screen.blit(img, rect_img.topleft)
 
             name = name_font.render(entry["name"], True, (230, 230, 255))
             screen.blit(name, (preview_x + 50, rect.y + 12))
