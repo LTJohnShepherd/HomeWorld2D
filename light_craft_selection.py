@@ -1,10 +1,8 @@
 # light_craft_selection.py
 import pygame
 import sys
-from ui import Button
+from ui import Button, INTERCEPTOR_PREVIEW_IMG
 from fleet_unit import Interceptor
-
-INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
 
 def light_craft_selection_screen(main_player, slot_index: int):
     screen = pygame.display.get_surface()
@@ -83,6 +81,27 @@ def light_craft_selection_screen(main_player, slot_index: int):
     # we will recompute rects every frame (simple)
     running = True
     while running:
+        
+        # recompute alive/selected/stored every frame
+        pool = getattr(main_player, "interceptor_pool", [])
+        assignments = getattr(main_player, "hangar_assignments", [])
+
+        alive_entries = [e for e in pool if e.get("alive", False)]
+
+        # any alive interceptor that is assigned to ANY slot counts as "selected"
+        selected_ids = set()
+        for assigned_id in assignments:
+            if assigned_id is None:
+                continue
+            # check that this id exists and is alive
+            for e in alive_entries:
+                if e.get("id") == assigned_id:
+                    selected_ids.add(assigned_id)
+                    break
+
+        selected_items = [e for e in alive_entries if e["id"] in selected_ids]
+        stored_items   = [e for e in alive_entries if e["id"] not in selected_ids]
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()

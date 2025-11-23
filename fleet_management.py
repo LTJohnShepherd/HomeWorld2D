@@ -1,15 +1,7 @@
 import sys
 import pygame
 from fleet_unit import ExpeditionShip, Frigate, Interceptor
-from ui import Button
-
-# preview sprite for ExpeditionShip
-EXPEDITION_PREVIEW_IMG = pygame.image.load("Previews/Carrier_T1_Preview.png")
-# preview sprite for Frigate
-FRIGATE_PREVIEW_IMG = pygame.image.load("Previews/Frigate_Preview.png")
-# preview sprite for Interceptor (for light-craft slots)
-INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
-
+from ui import Button, EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG
 
 def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
     """

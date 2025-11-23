@@ -120,6 +120,20 @@ class SpaceUnit(ABC):
         # radius of the rectangle's circumcircle
         return math.hypot(self.ship_size[0], self.ship_size[1]) * 0.5
 
+
+    def is_target_in_range(self, other: "SpaceUnit", radius: float | None = None) -> bool:
+        """Return True if a targeting circle around this unit reaches any part of 'other'.
+
+        The effective radius is:
+            (radius or self.fire_range) + other.bounding_radius().
+
+        This matches the previous in_range(a, b, r) helper from gameScreen.py.
+        """
+        r = radius if radius is not None else self.fire_range
+        dist2 = (self.pos - other.pos).length_squared()
+        eff_r = r + other.bounding_radius()
+        return dist2 <= eff_r * eff_r
+
     # --------------- Drawing ---------------
     def draw(self, surface, show_range=False):
         surf, _ = self.get_rotated_sprite()

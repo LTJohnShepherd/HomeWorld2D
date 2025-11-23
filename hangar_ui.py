@@ -1,56 +1,6 @@
 import pygame
 from fleet_unit import Frigate
-
-# preview sprite for ExpeditionShip
-EXPEDITION_PREVIEW_IMG = pygame.image.load("Previews/Carrier_T1_Preview.png")
-# preview sprite for Frigate
-FRIGATE_PREVIEW_IMG = pygame.image.load("Previews/Frigate_Preview.png")
-# preview sprite for Interceptor
-INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
-
-
-def draw_triangle(surface, center, width, height, color, thickness=2):
-    # Same helper as in gameScreen.py
-    size = width
-    cx, cy = int(center[0]), int(center[1])
-
-    h = size * (3 ** 0.5) / 2
-
-    left_tip     = (cx - 2 * h / 3, cy)
-    top_right    = (cx + h / 3,     cy - size / 2)
-    bottom_right = (cx + h / 3,     cy + size / 2)
-
-    pygame.draw.polygon(surface, color, [top_right, bottom_right, left_tip], thickness)
-
-def draw_diamond(surface, center, width, height, color, thickness=2):
-    # Same shape logic as in gameScreen (just scaled)
-    cx, cy = int(center[0]), int(center[1])
-    hw = width * 0.5
-    hh = height * 0.5
-    points = [
-        (cx,      cy - hh),  # top
-        (cx + hw, cy),       # right
-        (cx,      cy + hh),  # bottom
-        (cx - hw, cy)        # left
-    ]
-    pygame.draw.polygon(surface, color, points, thickness)
-
-def draw_hex(surface, center, width, height, color, thickness=2):
-    # Same helper as in gameScreen.py
-    cx, cy = int(center[0]), int(center[1])
-    hw = width * 0.5
-    hh = height * 0.5
-    inset = hw * 0.3
-
-    points = [
-        (cx - hw + inset, cy - hh),
-        (cx + hw - inset, cy - hh),
-        (cx + hw,         cy),
-        (cx + hw - inset, cy + hh),
-        (cx - hw + inset, cy + hh),
-        (cx - hw,         cy)
-    ]
-    pygame.draw.polygon(surface, color, points, thickness)
+from ui import EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG, draw_triangle, draw_diamond, draw_hex
 
 class HangarUI:
     """Manages hangar light craft previews and deploy/recall buttons for the main ship."""

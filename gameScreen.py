@@ -4,52 +4,11 @@ from fleet_unit import SpaceUnit, PirateFrigate, ExpeditionShip, Frigate, Interc
 from mover import Mover
 from projectile import Projectile
 from hangar_ui import HangarUI
-from ui import Button
+from ui import Button, draw_triangle, draw_diamond, draw_hex
 import sys
 import math
 
 SEPARATION_ITER = 2  # How many times to push shapes apart when they overlap
-
-def draw_triangle(surface, center, width, height, color, thickness=2):
-    size = width
-    cx, cy = int(center[0]), int(center[1])
-
-    h = size * math.sqrt(3) / 2  # height
-
-    left_tip    = (cx - 2 * h / 3, cy)
-    top_right   = (cx + h / 3,     cy - size / 2)
-    bottom_right = (cx + h / 3,    cy + size / 2)
-
-    pygame.draw.polygon(surface, color, [top_right, bottom_right, left_tip], thickness)
-
-def draw_diamond(surface, center, width, height, color, thickness=2):
-    cx, cy = int(center[0]), int(center[1])
-    hw = width * 0.5
-    hh = height * 0.5
-    points = [
-        (cx,     cy - hh),  # top
-        (cx + hw, cy),      # right
-        (cx,     cy + hh),  # bottom
-        (cx - hw, cy)      # left
-    ]
-    pygame.draw.polygon(surface, color, points, thickness)
-
-# --- hex helpers ---
-def draw_hex(surface, center, width, height, color, thickness=2):
-    cx, cy = int(center[0]), int(center[1])
-    hw = width * 0.5
-    hh = height * 0.5
-    inset = hw * 0.3
-
-    points = [
-        (cx - hw + inset, cy - hh),
-        (cx + hw - inset, cy - hh),
-        (cx + hw,         cy),
-        (cx + hw - inset, cy + hh),
-        (cx - hw + inset, cy + hh),
-        (cx - hw,         cy)
-    ]
-    pygame.draw.polygon(surface, color, points, thickness)
 
 
 def draw_hex_button(surface, button, font, base_color, hover_color, header_text):
@@ -68,14 +27,6 @@ def draw_hex_button(surface, button, font, base_color, hover_color, header_text)
     surface.blit(label, label_rect)
 
 
-def in_range(a, b, r):
-    """
-    Return True if the targeting circle of radius r around 'a'
-    touches ANY part of ship 'b' (using b's bounding radius).
-    """
-    dist2 = (a.pos - b.pos).length_squared()
-    eff_r = r + b.bounding_radius()
-    return dist2 <= eff_r * eff_r
 
 def run_game():
     WIDTH, HEIGHT = 1280, 720
@@ -224,7 +175,7 @@ def run_game():
             if not enemy_fleet:
                 break
             nearest = min(enemy_fleet, key=lambda e: (e.pos - p.pos).length_squared())
-            if in_range(p, nearest, p.fire_range) and p.ready_to_fire():
+            if p.is_target_in_range(nearest) and p.ready_to_fire():
                 dirv = (nearest.pos - p.pos)
                 projectiles.append(Projectile(p.pos, dirv, damage=p.bullet_damage, color=(255,240,120), owner_is_enemy=False))
                 p.reset_cooldown()
@@ -233,7 +184,7 @@ def run_game():
             if not player_fleet:
                 break
             nearest = min(player_fleet, key=lambda p: (p.pos - e.pos).length_squared())
-            if in_range(e, nearest, e.fire_range) and e.ready_to_fire():
+            if e.is_target_in_range(nearest) and e.ready_to_fire():
                 dirv = (nearest.pos - e.pos)
                 projectiles.append(Projectile(e.pos, dirv, damage=e.bullet_damage, color=(255,120,120), owner_is_enemy=True, speed=Projectile.SPEED*0.9))
                 e.reset_cooldown()
