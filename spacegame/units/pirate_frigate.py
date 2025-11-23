@@ -1,11 +1,12 @@
 import pygame
-from fleet_unit import SpaceUnit
-from config import (
+from spacegame.units.fleet_unit import SpaceUnit
+from spacegame.config import (
     PIRATE_DEFAULT_SPEED,
     PIRATE_DEFAULT_ROT_SPEED,
     PIRATE_DEFAULT_FIRE_RANGE,
     PIRATE_DEFAULT_FIRE_COOLDOWN,
     PIRATE_DEFAULT_BULLET_DAMAGE,
+    IMAGES_DIR,
 )
 
 class PirateFrigate(SpaceUnit):
@@ -22,7 +23,7 @@ class PirateFrigate(SpaceUnit):
 
     def __init__(self, start_pos, **kwargs):
         # load pirate sprite
-        sprite = pygame.image.load("Images/PirateCruiser.png").convert_alpha()
+        sprite = pygame.image.load(IMAGES_DIR / "PirateCruiser.png").convert_alpha()
 
         # rotate so it faces to the right (like other ships)
         sprite = pygame.transform.rotate(sprite, -90)

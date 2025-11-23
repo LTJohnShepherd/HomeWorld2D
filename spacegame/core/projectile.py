@@ -1,6 +1,6 @@
 import pygame
 from pygame.math import Vector2
-from config import (
+from spacegame.config import (
     PROJECTILE_SPEED,
     PROJECTILE_RADIUS,
     PROJECTILE_LIFETIME,

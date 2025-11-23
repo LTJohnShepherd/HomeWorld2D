@@ -1,8 +1,8 @@
 import pygame
 import sys
-from gameScreen import run_game
-from ui import Button
-from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+from spacegame.screens.game_screen import run_game
+from spacegame.ui.ui import Button
+from spacegame.config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
 
 def main():
    

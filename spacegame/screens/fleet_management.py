@@ -1,9 +1,9 @@
 import sys
 import pygame
-from expedition_ship import ExpeditionShip
-from frigate import Frigate
-from interceptor import Interceptor
-from ui import Button, EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG
+from spacegame.units.expedition_ship import ExpeditionShip
+from spacegame.units.frigate import Frigate
+from spacegame.units.interceptor import Interceptor
+from spacegame.ui.ui import Button, EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG
 
 def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
     """
@@ -155,7 +155,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                             break
 
                         # Otherwise, open the selection screen for this slot
-                        from light_craft_selection import light_craft_selection_screen
+                        from spacegame.screens.light_craft_selection import light_craft_selection_screen
                         light_craft_selection_screen(main_player, idx)
                         selector_open_for = None
                         selector_items = []

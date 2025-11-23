@@ -4,6 +4,13 @@ Only important gameplay / tuning values are centralized here.
 Visual layout numbers and UI offsets stay close to their code.
 """
 
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
+IMAGES_DIR = ASSETS_DIR / "images"
+PREVIEWS_DIR = ASSETS_DIR / "previews"
+
 # ---- Window / timing ----
 SCREEN_WIDTH  = 1280
 SCREEN_HEIGHT = 720

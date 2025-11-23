@@ -1,4 +1,5 @@
 import pygame
+from spacegame.config import PREVIEWS_DIR
 
 # ---------- UI helpers ----------
 class Button:
@@ -40,9 +41,9 @@ class Button:
 
 # ---------- Shared preview images ----------
 # Centralized here so multiple screens can reuse the same loaded surfaces.
-EXPEDITION_PREVIEW_IMG = pygame.image.load("Previews/Carrier_T1_Preview.png")
-FRIGATE_PREVIEW_IMG    = pygame.image.load("Previews/Frigate_Preview.png")
-INTERCEPTOR_PREVIEW_IMG = pygame.image.load("Previews/Interceptor_Preview.png")
+EXPEDITION_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR / "Carrier_T1_Preview.png")
+FRIGATE_PREVIEW_IMG    = pygame.image.load(PREVIEWS_DIR / "Frigate_Preview.png")
+INTERCEPTOR_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR / "Interceptor_Preview.png")
 
 # ---------- Shape drawing helpers ----------
 def draw_triangle(surface, center, size, color, thickness=2):

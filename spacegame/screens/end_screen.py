@@ -1,10 +1,10 @@
 # end_screen.py
 import pygame
 import sys
-from ui import Button
-from gameScreen import run_game
-from main_menu import main as main_menu
-from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+from spacegame.ui.ui import Button
+from spacegame.screens.game_screen import run_game
+from spacegame.screens.main_menu import main as main_menu
+from spacegame.config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
 
 def end_screen():
     WIDTH, HEIGHT = SCREEN_WIDTH, SCREEN_HEIGHT

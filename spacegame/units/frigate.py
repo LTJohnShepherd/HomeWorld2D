@@ -1,5 +1,6 @@
 import pygame
-from fleet_unit import SpaceUnit
+from spacegame.units.fleet_unit import SpaceUnit
+from spacegame.config import IMAGES_DIR
 
 class Frigate(SpaceUnit):
     """Escort frigate for the ExpeditionShip."""
@@ -9,7 +10,7 @@ class Frigate(SpaceUnit):
 
     def __init__(self, start_pos, **kwargs):
         # load frigate sprite
-        sprite = pygame.image.load("Images/Frigate.png").convert_alpha()
+        sprite = pygame.image.load(IMAGES_DIR / "Frigate.png").convert_alpha()
 
         # rotate so it faces horizontally like the other ships
         sprite = pygame.transform.rotate(sprite, -90)

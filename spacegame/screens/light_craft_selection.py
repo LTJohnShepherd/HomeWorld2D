@@ -1,8 +1,8 @@
 # light_craft_selection.py
 import pygame
 import sys
-from ui import Button, INTERCEPTOR_PREVIEW_IMG
-from interceptor import Interceptor
+from spacegame.ui.ui import Button, INTERCEPTOR_PREVIEW_IMG
+from spacegame.units.interceptor import Interceptor
 
 def light_craft_selection_screen(main_player, slot_index: int):
     screen = pygame.display.get_surface()

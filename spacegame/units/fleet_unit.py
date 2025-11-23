@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 import pygame
-from mover import Mover
+from spacegame.core.mover import Mover
 from pygame.math import Vector2
-from config import (
+from spacegame.config import (
     PLAYER_DEFAULT_SPEED,
     PLAYER_DEFAULT_ROT_SPEED,
     PLAYER_DEFAULT_FIRE_RANGE,

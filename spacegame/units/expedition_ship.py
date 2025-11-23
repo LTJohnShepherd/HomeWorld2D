@@ -1,11 +1,12 @@
 import pygame
 from pygame.math import Vector2
-from fleet_unit import SpaceUnit
-from interceptor import Interceptor
-from config import (
+from spacegame.units.fleet_unit import SpaceUnit
+from spacegame.units.interceptor import Interceptor
+from spacegame.config import (
     EXPEDITION_MAX_HEALTH,
     HANGAR_SLOT_COUNT,
     INTERCEPTOR_POOL_SIZE,
+    IMAGES_DIR,
 )
 
 class ExpeditionShip(SpaceUnit):
@@ -16,7 +17,7 @@ class ExpeditionShip(SpaceUnit):
 
     def __init__(self, start_pos, **kwargs):
         # load sprite first
-        sprite = pygame.image.load("Images/ExpeditionShip.png").convert_alpha()
+        sprite = pygame.image.load(IMAGES_DIR / "ExpeditionShip.png").convert_alpha()
 
         # fix orientation (rotate -90 degrees clockwise)
         sprite = pygame.transform.rotate(sprite, -90)

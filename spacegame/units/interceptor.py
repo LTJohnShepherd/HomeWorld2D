@@ -1,5 +1,6 @@
 import pygame
-from fleet_unit import SpaceUnit
+from spacegame.units.fleet_unit import SpaceUnit
+from spacegame.config import IMAGES_DIR
 
 class Interceptor(SpaceUnit):
     """Small deployable interceptor light craft."""
@@ -9,7 +10,7 @@ class Interceptor(SpaceUnit):
 
     def __init__(self, start_pos, interceptor_id=None, **kwargs):
         # load interceptor sprite
-        sprite = pygame.image.load("Images/Interceptor.png").convert_alpha()
+        sprite = pygame.image.load(IMAGES_DIR / "Interceptor.png").convert_alpha()
         # rotate so it faces like the other ships (to the right at angle 0)
         sprite = pygame.transform.rotate(sprite, -90)
 

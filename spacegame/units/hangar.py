@@ -1,5 +1,5 @@
 from typing import List, Optional
-from interceptor import Interceptor
+from spacegame.units.interceptor import Interceptor
 
 class Hangar:
     """

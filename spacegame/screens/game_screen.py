@@ -1,19 +1,20 @@
 import pygame
 from pygame.math import Vector2
-from fleet_unit import SpaceUnit
-from pirate_frigate import PirateFrigate
-from expedition_ship import ExpeditionShip
-from frigate import Frigate
-from interceptor import Interceptor
-from mover import Mover
-from projectile import Projectile
-from hud_ui import HudUI
-from ui import Button, draw_triangle, draw_diamond, draw_hex
-from config import (
+from spacegame.units.fleet_unit import SpaceUnit
+from spacegame.units.pirate_frigate import PirateFrigate
+from spacegame.units.expedition_ship import ExpeditionShip
+from spacegame.units.frigate import Frigate
+from spacegame.units.interceptor import Interceptor
+from spacegame.core.mover import Mover
+from spacegame.core.projectile import Projectile
+from spacegame.ui.hud_ui import HudUI
+from spacegame.ui.ui import Button, draw_triangle, draw_diamond, draw_hex
+from spacegame.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
     FPS,
     SEPARATION_ITER,
+    IMAGES_DIR,
 )
 import sys
 
@@ -40,7 +41,7 @@ def run_game():
     pygame.display.set_caption("SpaceGame")
 
     # --- Load skybox background ---
-    background_img = pygame.image.load("Images/Skybox.png").convert()
+    background_img = pygame.image.load(IMAGES_DIR / "Skybox.png").convert()
     background_img = pygame.transform.smoothscale(background_img, (WIDTH, HEIGHT))
 
     clock = pygame.time.Clock()
@@ -85,7 +86,7 @@ def run_game():
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # First: fleet management button
                 if fleet_btn.handle_event(event):
-                    from fleet_management import fleet_management_screen
+                    from spacegame.screens.fleet_management import fleet_management_screen
                     fleet_management_screen(main_player, player_fleet)
                     # after returning, skip further handling of this click
                     continue
@@ -248,7 +249,7 @@ def run_game():
 
         # --- End game when ExpeditionShip dies ---
         if main_player.health <= 0:
-            from end_screen import end_screen
+            from spacegame.screens.end_screen import end_screen
             end_screen()
             return
 

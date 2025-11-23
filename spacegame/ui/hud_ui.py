@@ -1,6 +1,6 @@
 import pygame
-from frigate import Frigate
-from ui import EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG, draw_triangle, draw_diamond, draw_hex
+from spacegame.units.frigate import Frigate
+from spacegame.ui.ui import EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG, draw_triangle, draw_diamond, draw_hex
 
 class HudUI:
     """Manages the Hud UI in Gamescreen."""
