@@ -1,6 +1,6 @@
 import sys
 import pygame
-from spacegame.ui.ui import Button, draw_health_bar
+from spacegame.ui.ui import Button, draw_health_bar, draw_armor_bar
 from spacegame.config import (
     SCREEN_WIDTH, 
     SCREEN_HEIGHT, 
@@ -331,6 +331,19 @@ def internal_screen(main_player, player_fleet):
                 getattr(main_player, "health", 0),
                 main_player.max_health,
             )
+            # Armor bar underneath health, if the main ship has armor
+            if hasattr(main_player, "max_armor") and main_player.max_armor > 0:
+                armor_y = health_bar_y + health_bar_height + 4
+                draw_armor_bar(
+                    screen,
+                    health_bar_x,
+                    armor_y,
+                    health_bar_width,
+                    health_bar_height,
+                    getattr(main_player, "armor", 0),
+                    main_player.max_armor,
+                )
+
 
             segment_count = 10
             segment_w = health_bar_width / float(segment_count)

@@ -1,6 +1,6 @@
 import pygame
 from spacegame.models.units.fleet_unit import SpaceUnit
-from spacegame.config import IMAGES_DIR
+from spacegame.config import IMAGES_DIR, FRIGATE_MAX_ARMOR
 
 class Frigate(SpaceUnit):
     """Escort frigate for the ExpeditionShip."""
@@ -27,3 +27,7 @@ class Frigate(SpaceUnit):
         # use sprite size for collisions / drawing
         super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
         self.base_surf = scaled_sprite
+
+        # Frigate armor
+        self.max_armor = FRIGATE_MAX_ARMOR
+        self.armor = self.max_armor

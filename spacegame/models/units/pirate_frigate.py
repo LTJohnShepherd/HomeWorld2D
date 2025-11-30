@@ -6,7 +6,9 @@ from spacegame.config import (
     PIRATE_DEFAULT_FIRE_RANGE,
     PIRATE_DEFAULT_FIRE_COOLDOWN,
     PIRATE_DEFAULT_BULLET_DAMAGE,
+    PIRATE_DEFAULT_ARMOR_DAMAGE,
     IMAGES_DIR,
+    PIRATE_MAX_ARMOR,
 )
 
 class PirateFrigate(SpaceUnit):
@@ -17,6 +19,7 @@ class PirateFrigate(SpaceUnit):
     DEFAULT_FIRE_RANGE = PIRATE_DEFAULT_FIRE_RANGE
     DEFAULT_FIRE_COOLDOWN = PIRATE_DEFAULT_FIRE_COOLDOWN
     DEFAULT_BULLET_DAMAGE = PIRATE_DEFAULT_BULLET_DAMAGE
+    DEFAULT_ARMOR_DAMAGE = PIRATE_DEFAULT_ARMOR_DAMAGE
 
     def shape_id(self):
         return "pirate"
@@ -40,3 +43,7 @@ class PirateFrigate(SpaceUnit):
         # use sprite size for collisions / drawing
         super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
         self.base_surf = scaled_sprite
+
+        # Pirate frigate armor
+        self.max_armor = PIRATE_MAX_ARMOR
+        self.armor = self.max_armor

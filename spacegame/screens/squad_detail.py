@@ -9,6 +9,7 @@ from spacegame.ui.fleet_management_ui import (
 from pygame.math import Vector2
 from spacegame.ui.ui import INTERCEPTOR_PREVIEW_IMG, draw_triangle
 from spacegame.models.units.frigate import Frigate
+from spacegame.models.units.interceptor import Interceptor
 from spacegame.config import (
     SCREEN_WIDTH, 
     SCREEN_HEIGHT, 
@@ -22,9 +23,15 @@ from spacegame.config import (
     )
 
 
-# ---- Tier icon helpers (same style as in light_craft_selection) ----
-def _compute_squad_stats(is_equipped: bool):
-    if not is_equipped:
+def _compute_squad_stats(is_equipped: bool, hangar=None, slot_index: int = None, entry=None):
+    """Return squad stats for the currently viewed interceptor squad.
+
+    Always derives values from an Interceptor instance that matches the
+    interceptor assigned to this slot. If the interceptor is not actively
+    deployed, a temporary preview Interceptor is constructed using the
+    current tier / config values.
+    """
+    if not is_equipped or entry is None or hangar is None or slot_index is None:
         return {
             "damage_to_hull": 0.0,
             "damage_to_armor": 0.0,
@@ -32,11 +39,37 @@ def _compute_squad_stats(is_equipped: bool):
             "speed": 0.0,
         }
 
+    ship = None
+    if hasattr(hangar, "ships") and 0 <= slot_index < len(hangar.ships):
+        ship = hangar.ships[slot_index]
+
+    if ship is None:
+        # Not currently deployed: build a temporary preview interceptor to
+        # compute true stats for this squad based on the current tier/config.
+        try:
+            ship = Interceptor((0, 0), interceptor_id=entry.id, tier=getattr(entry, "tier", 0))
+        except Exception:
+            ship = None
+
+    if ship is None:
+        return {
+            "damage_to_hull": 0.0,
+            "damage_to_armor": 0.0,
+            "hull": 0,
+            "speed": 0.0,
+        }
+
+    damage_to_hull = float(getattr(ship, "bullet_damage", 0.0))
+    damage_to_armor = float(getattr(ship, "armor_damage", 0.0))
+    hull = int(getattr(ship, "max_health", getattr(ship, "health", 0.0)))
+    mover = getattr(ship, "mover", None)
+    speed = float(getattr(mover, "speed", 0.0)) if mover is not None else 0.0
+
     return {
-        "damage_to_hull": 37.4,
-        "damage_to_armor": 2.8,
-        "hull": 3990,
-        "speed": 11.7,
+        "damage_to_hull": damage_to_hull,
+        "damage_to_armor": damage_to_armor,
+        "hull": hull,
+        "speed": speed,
     }
 
 
@@ -66,7 +99,7 @@ def _gather_slot_info(main_player, player_fleet, slot_index: int):
         if entry is None:
             is_equipped = False
 
-    if not is_equipped:
+    if not is_equipped or entry is None:
         return {
             "is_equipped": False,
             "name": "NONE",
@@ -82,11 +115,14 @@ def _gather_slot_info(main_player, player_fleet, slot_index: int):
     rarity = getattr(entry, "rarity", "COMMON")
     tier = int(getattr(entry, "tier", 0))
 
+    # Slot readiness is still based on hangar.slots
     ready_ships = 1 if hangar.slots[slot_index] else 0
     max_ships = 1
     selected_ship_index = 0 if ready_ships > 0 else -1
 
-    stats = _compute_squad_stats(True)
+    # Always compute stats based on the interceptor assigned to this slot,
+    # even if it is not actively deployed.
+    stats = _compute_squad_stats(True, hangar=hangar, slot_index=slot_index, entry=entry)
 
     return {
         "is_equipped": True,

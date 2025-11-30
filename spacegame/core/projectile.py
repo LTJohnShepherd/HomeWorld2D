@@ -15,7 +15,10 @@ class Projectile:
     SPEED = PROJECTILE_SPEED
     RADIUS = PROJECTILE_RADIUS
 
-    def __init__(self, pos, direction, *, speed=None, radius=None, damage=10.0, color=(255, 240, 120), lifetime=PROJECTILE_LIFETIME, owner_is_enemy=False):
+    def __init__(self, pos, direction, *, speed=None, radius=None,
+                 hull_damage=None, armor_damage=None,
+                 color=(255, 240, 120), lifetime=PROJECTILE_LIFETIME,
+                 owner_is_enemy=False):
         self.pos = Vector2(pos)
         self.direction = Vector2(direction)
         if self.direction.length_squared() == 0:
@@ -24,7 +27,15 @@ class Projectile:
             self.direction = self.direction.normalize()
         self.speed = float(self.SPEED if speed is None else speed)
         self.radius = int(self.RADIUS if radius is None else radius)
-        self.damage = float(damage)
+
+        # Hull & armor damage
+        if hull_damage is None:
+            hull_damage = 10.0
+        if armor_damage is None:
+            armor_damage = hull_damage
+
+        self.hull_damage = float(hull_damage)
+        self.armor_damage = float(armor_damage)
         self.color = color
         self.lifetime = float(lifetime)
         self.owner_is_enemy = owner_is_enemy

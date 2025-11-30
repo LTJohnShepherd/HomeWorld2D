@@ -103,3 +103,20 @@ def draw_health_bar(surface, x, y, w, h, value, max_value):
         pygame.draw.rect(surface, fill_color, fill_rect, border_radius=3)
 
     pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)
+
+def draw_armor_bar(surface, x, y, w, h, value, max_value):
+    """Draw a small rectangular armor bar (blue) under health bars."""
+    if max_value <= 0:
+        return
+
+    pct = max(0.0, min(1.0, float(value) / float(max_value)))
+
+    bg_rect = pygame.Rect(x, y, w, h)
+    pygame.draw.rect(surface, (20, 40, 70), bg_rect, border_radius=3)
+
+    fill_w = int(w * pct + 0.5)
+    if fill_w > 0:
+        fill_rect = pygame.Rect(x, y, fill_w, h)
+        pygame.draw.rect(surface, (90, 190, 255), fill_rect, border_radius=3)
+
+    pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)

@@ -1,6 +1,6 @@
 import pygame
 from spacegame.models.units.frigate import Frigate
-from spacegame.ui.ui import EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG, draw_triangle, draw_diamond, draw_hex, draw_health_bar
+from spacegame.ui.ui import EXPEDITION_PREVIEW_IMG, FRIGATE_PREVIEW_IMG, INTERCEPTOR_PREVIEW_IMG, draw_triangle, draw_diamond, draw_hex, draw_health_bar, draw_armor_bar
 from spacegame.config import (UI_TAB_TEXT_SELECTED)
 
 class HudUI:
@@ -119,6 +119,10 @@ class HudUI:
         bar_y = ms_y + ms_h + pad
 
         draw_health_bar(screen, bar_x, bar_y, bar_w, bar_h, main_player.health, main_player.max_health)
+        # Armor bar directly under health, if the ship has armor
+        if getattr(main_player, 'max_armor', 0) > 0:
+            armor_y = bar_y + bar_h + 2
+            draw_armor_bar(screen, bar_x, armor_y, bar_w, bar_h, getattr(main_player, 'armor', 0), getattr(main_player, 'max_armor', 0))
 
         # ---------------------------------------------------------
         # --- Frigate preview (sprite + diamond overlay) ---
@@ -160,6 +164,10 @@ class HudUI:
             bar_y = fr_y + fr_h + pad
 
             draw_health_bar(screen, bar_x, bar_y, bar_w, bar_h, frigate.health, frigate.max_health)
+            # Armor bar directly under health, if frigate has armor
+            if getattr(frigate, 'max_armor', 0) > 0:
+                armor_y = bar_y + bar_h + 2
+                draw_armor_bar(screen, bar_x, armor_y, bar_w, bar_h, getattr(frigate, 'armor', 0), getattr(frigate, 'max_armor', 0))
 
 
         # ---------------------------------------------------------
@@ -215,6 +223,10 @@ class HudUI:
                 bar_y = preview_y + preview_size + pad
 
                 draw_health_bar(screen, bar_x, bar_y, bar_w, bar_h, fighter_ship.health, fighter_ship.max_health)
+                # Armor bar directly under health, if interceptor has armor
+                if getattr(fighter_ship, 'max_armor', 0) > 0:
+                    armor_y = bar_y + bar_h + 2
+                    draw_armor_bar(screen, bar_x, armor_y, bar_w, bar_h, getattr(fighter_ship, 'armor', 0), getattr(fighter_ship, 'max_armor', 0))
 
 
             # Draw deploy/recall button above preview if active

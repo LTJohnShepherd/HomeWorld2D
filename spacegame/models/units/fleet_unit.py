@@ -8,6 +8,7 @@ from spacegame.config import (
     PLAYER_DEFAULT_FIRE_RANGE,
     PLAYER_DEFAULT_FIRE_COOLDOWN,
     PLAYER_DEFAULT_BULLET_DAMAGE,
+    PLAYER_DEFAULT_ARMOR_DAMAGE,
 )
 import math
 
@@ -19,6 +20,7 @@ class SpaceUnit(ABC):
     DEFAULT_FIRE_RANGE = PLAYER_DEFAULT_FIRE_RANGE
     DEFAULT_FIRE_COOLDOWN = PLAYER_DEFAULT_FIRE_COOLDOWN
     DEFAULT_BULLET_DAMAGE = PLAYER_DEFAULT_BULLET_DAMAGE
+    DEFAULT_ARMOR_DAMAGE  = PLAYER_DEFAULT_ARMOR_DAMAGE
 
     COLLISION_DPS = 20.0
 
@@ -34,7 +36,7 @@ class SpaceUnit(ABC):
 
     def __init__(self, start_pos, ship_size=(60, 30), *, color=None, speed=None,
                  rotation_speed=None, is_enemy=False, fire_range=None,
-                 fire_cooldown=None, bullet_damage=None):
+                 fire_cooldown=None, bullet_damage=None, armor_damage=None):
         
         # resolve defaults from class
         self.ship_size = ship_size
@@ -43,6 +45,7 @@ class SpaceUnit(ABC):
         self.fire_range = float(fire_range if fire_range is not None else self.DEFAULT_FIRE_RANGE)
         self.fire_cooldown = float(fire_cooldown if fire_cooldown is not None else self.DEFAULT_FIRE_COOLDOWN)
         self.bullet_damage = float(bullet_damage if bullet_damage is not None else self.DEFAULT_BULLET_DAMAGE)
+        self.armor_damage  = float(armor_damage  if armor_damage  is not None else self.DEFAULT_ARMOR_DAMAGE)
 
         # base (unrotated) surface of the rectangle
         self.base_surf = pygame.Surface(ship_size, pygame.SRCALPHA)
@@ -56,6 +59,10 @@ class SpaceUnit(ABC):
         # --- Health (floats) ---
         self.max_health = 100.0
         self.health = 100.0
+
+        # --- Armor (floats) ---
+        self.max_armor = 0.0
+        self.armor = 0.0
 
         # --- Shooting cooldown ---
         self.cooldown_timer = 0.0
@@ -95,6 +102,17 @@ class SpaceUnit(ABC):
 
     def heal(self, amount):
         self.set_health(self.health + float(amount))
+
+    # --------------- Armor API ---------------
+    def set_armor(self, value):
+        v = float(value)
+        self.armor = max(0.0, min(v, float(self.max_armor)))
+
+    def take_armor_damage(self, amount):
+        self.set_armor(self.armor - float(amount))
+
+    def heal_armor(self, amount):
+        self.set_armor(self.armor + float(amount))
 
     # --------------- Shooting API ---------------
     def update_cooldown(self, dt):
@@ -173,8 +191,22 @@ class SpaceUnit(ABC):
         if fill_w > 0:
             fill_rect = pygame.Rect(bar_x, bar_y, fill_w, bar_h)
             pygame.draw.rect(surface, fill_color, fill_rect, border_radius=3)
-
+        # health bar border
         pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)
+
+        # --- Armor bar (if this unit has armor) ---
+        if getattr(self, 'max_armor', 0) > 0:
+            armor_bar_y = bar_y + bar_h + 2
+            armor_bg_rect = pygame.Rect(bar_x, armor_bar_y, bar_w, bar_h)
+            pygame.draw.rect(surface, (20, 40, 70), armor_bg_rect, border_radius=3)
+
+            armor_pct = max(0.0, min(1.0, self.armor / self.max_armor)) if self.max_armor > 0 else 0.0
+            armor_fill_w = int(bar_w * armor_pct + 0.5)
+            if armor_fill_w > 0:
+                armor_fill_rect = pygame.Rect(bar_x, armor_bar_y, armor_fill_w, bar_h)
+                pygame.draw.rect(surface, (90, 190, 255), armor_fill_rect, border_radius=3)
+
+            pygame.draw.rect(surface, (10, 10, 10), armor_bg_rect, 1, border_radius=3)
 
     def point_inside(self, point):
         return self.mover.point_inside(point)

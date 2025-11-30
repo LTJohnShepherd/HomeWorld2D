@@ -5,6 +5,7 @@ from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.units.hangar import Hangar
 from spacegame.config import (
     EXPEDITION_MAX_HEALTH,
+    EXPEDITION_MAX_ARMOR,
     HANGAR_SLOT_COUNT,
     INTERCEPTOR_POOL_SIZE,
     IMAGES_DIR,
@@ -36,9 +37,11 @@ class ExpeditionShip(SpaceUnit):
         super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
         self.base_surf = scaled_sprite
 
-        # Increase ExpeditionShip health
+        # Increase ExpeditionShip health / armor
         self.max_health = EXPEDITION_MAX_HEALTH
         self.health = self.max_health
+        self.max_armor = EXPEDITION_MAX_ARMOR
+        self.armor = self.max_armor
 
                 # Hangar system: delegate light-craft management to Hangar helper.
         # Hangar keeps:

@@ -4,7 +4,6 @@ Only important gameplay / tuning values are centralized here.
 Visual layout numbers and UI offsets stay close to their code.
 """
 
-ASSETS_DIR = "spacegame/assets"
 IMAGES_DIR = "spacegame/assets/images"
 PREVIEWS_DIR = "spacegame/assets/previews"
 
@@ -21,6 +20,7 @@ PLAYER_DEFAULT_ROT_SPEED     = 360.0
 PLAYER_DEFAULT_FIRE_RANGE    = 230.0
 PLAYER_DEFAULT_FIRE_COOLDOWN = 0.55
 PLAYER_DEFAULT_BULLET_DAMAGE = 12.0
+PLAYER_DEFAULT_ARMOR_DAMAGE  = 10.0
 
 # ---- Enemy Pirate Frigate defaults ----
 PIRATE_DEFAULT_SPEED         = 140.0
@@ -28,11 +28,15 @@ PIRATE_DEFAULT_ROT_SPEED     = 240.0
 PIRATE_DEFAULT_FIRE_RANGE    = 260.0
 PIRATE_DEFAULT_FIRE_COOLDOWN = 0.8
 PIRATE_DEFAULT_BULLET_DAMAGE = 10.0
+PIRATE_DEFAULT_ARMOR_DAMAGE  = 9.0
 
 # ---- Expedition ship / hangar ----
 EXPEDITION_MAX_HEALTH  = 500.0
+EXPEDITION_MAX_ARMOR   = 300.0
 HANGAR_SLOT_COUNT      = 3
 INTERCEPTOR_POOL_SIZE  = 5
+FRIGATE_MAX_ARMOR      = 180.0
+PIRATE_MAX_ARMOR       = 220.0
 
 # ---- Projectile defaults ----
 PROJECTILE_SPEED    = 600.0

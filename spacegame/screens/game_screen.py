@@ -1,3 +1,4 @@
+import sys
 import pygame
 from pygame.math import Vector2
 from spacegame.models.units.fleet_unit import SpaceUnit
@@ -16,6 +17,8 @@ from spacegame.config import (
     SEPARATION_ITER,
     IMAGES_DIR,
 )
+from spacegame.screens.internal_screen import internal_screen
+from spacegame.screens.end_screen import end_screen
 
 
 def update_projectiles(projectiles, player_fleet, enemy_fleet, dt):
@@ -24,6 +27,8 @@ def update_projectiles(projectiles, player_fleet, enemy_fleet, dt):
         b.update(dt)
         if not getattr(b, "is_active", False):
             continue
+
+        # When owner_is_enemy=True, bullets fly from enemies toward player fleet.
         if getattr(b, "owner_is_enemy", False):
             hit = None
             for p in player_fleet:
@@ -31,7 +36,11 @@ def update_projectiles(projectiles, player_fleet, enemy_fleet, dt):
                     hit = p
                     break
             if hit is not None:
-                hit.take_damage(b.damage)
+                # Apply armor damage first, if the ship has armor remaining.
+                if getattr(hit, "max_armor", 0) > 0 and getattr(hit, "armor", 0) > 0:
+                    hit.take_armor_damage(b.armor_damage)
+                else:
+                    hit.take_damage(b.hull_damage)
                 b.is_active = False
         else:
             hit = None
@@ -40,7 +49,10 @@ def update_projectiles(projectiles, player_fleet, enemy_fleet, dt):
                     hit = e
                     break
             if hit is not None:
-                hit.take_damage(b.damage)
+                if getattr(hit, "max_armor", 0) > 0 and getattr(hit, "armor", 0) > 0:
+                    hit.take_armor_damage(b.armor_damage)
+                else:
+                    hit.take_damage(b.hull_damage)
                 b.is_active = False
 
     return [b for b in projectiles if getattr(b, "is_active", False)]
@@ -50,29 +62,38 @@ def handle_collisions(player_fleet, enemy_fleet, dt):
     """Handle separation and collision damage between ships."""
     # Separation: keep ships from overlapping too much
     for _ in range(SEPARATION_ITER):
-        # Player-player separation:
-        # - Light crafts still push other Light crafts.
-        # - Light crafts do NOT push the main ship (or any non-triangle player spaceship).
+        # Player-player separation
         for i, a in enumerate(player_fleet):
             for b in player_fleet[i + 1:]:
                 if isinstance(a, Interceptor) and isinstance(b, Interceptor):
                     Mover.separate_rotated(a, b)
                 elif not isinstance(a, Interceptor) and not isinstance(b, Interceptor):
                     Mover.separate_rotated(a, b)
-        # Enemy-enemy separation unchanged.
+
+        # Enemy-enemy separation
         for i, a in enumerate(enemy_fleet):
             for b in enemy_fleet[i + 1:]:
                 Mover.separate_rotated(a, b)
 
-    # Player-enemy collision damage still applies, but Light crafts do not push enemies.
+        # NEW: Player-enemy separation (so big ships push enemies instead of clipping)
+        for p in player_fleet:
+            for e in enemy_fleet:
+                Mover.separate_rotated(p, e)
+
+    # Player-enemy collision damage (unchanged)
     for p in player_fleet:
         for e in enemy_fleet:
             if p.collides_with(e):
                 dmg = SpaceUnit.COLLISION_DPS * dt
-                p.take_damage(dmg)
-                e.take_damage(dmg)
+                if getattr(p, 'max_armor', 0) > 0 and getattr(p, 'armor', 0) > 0:
+                    p.take_armor_damage(dmg)
+                else:
+                    p.take_damage(dmg)
+                if getattr(e, 'max_armor', 0) > 0 and getattr(e, 'armor', 0) > 0:
+                    e.take_armor_damage(dmg)
+                else:
+                    e.take_damage(dmg)
 
-import sys
 
 def draw_hex_button(surface, button, font, base_color, hover_color, header_text):
     rect = button.rect
@@ -88,7 +109,6 @@ def draw_hex_button(surface, button, font, base_color, hover_color, header_text)
     # slightly above and to the left of the hex body
     label_rect.bottomleft = (rect.left, rect.top - 10)
     surface.blit(label, label_rect)
-
 
 
 def run_game():
@@ -145,7 +165,6 @@ def run_game():
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # First: fleet management button
                 if fleet_btn.handle_event(event):
-                    from spacegame.screens.internal_screen import internal_screen
                     res = internal_screen(main_player, player_fleet)
                     if res == "to_game":
                         # Orange X from any internal screen chain: already back in game.
@@ -242,7 +261,10 @@ def run_game():
             nearest = min(enemy_fleet, key=lambda e: (e.pos - p.pos).length_squared())
             if p.is_target_in_range(nearest) and p.ready_to_fire():
                 dirv = (nearest.pos - p.pos)
-                projectiles.append(Projectile(p.pos, dirv, damage=p.bullet_damage, color=(255,240,120), owner_is_enemy=False))
+                projectiles.append(Projectile(p.pos, dirv,
+                                        hull_damage=p.bullet_damage,
+                                        armor_damage=p.armor_damage,
+                                        color=(255,240,120), owner_is_enemy=False))
                 p.reset_cooldown()
 
         for e in enemy_fleet:
@@ -251,7 +273,11 @@ def run_game():
             nearest = min(player_fleet, key=lambda p: (p.pos - e.pos).length_squared())
             if e.is_target_in_range(nearest) and e.ready_to_fire():
                 dirv = (nearest.pos - e.pos)
-                projectiles.append(Projectile(e.pos, dirv, damage=e.bullet_damage, color=(255,120,120), owner_is_enemy=True, speed=Projectile.SPEED*0.9))
+                projectiles.append(Projectile(e.pos, dirv,
+                                        hull_damage=e.bullet_damage,
+                                        armor_damage=e.armor_damage,
+                                        color=(255,120,120), owner_is_enemy=True,
+                                        speed=Projectile.SPEED*0.9))
                 e.reset_cooldown()
 
                 # --- Update projectiles & handle hits ---
@@ -273,7 +299,6 @@ def run_game():
 
         # --- End game when ExpeditionShip dies ---
         if main_player.health <= 0:
-            from spacegame.screens.end_screen import end_screen
             end_screen()
             return
 
