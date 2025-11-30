@@ -1,4 +1,3 @@
-import sys
 import pygame
 from pygame.math import Vector2
 from spacegame.models.units.fleet_unit import SpaceUnit
@@ -18,8 +17,6 @@ from spacegame.config import (
     IMAGES_DIR,
 )
 from spacegame.screens.internal_screen import internal_screen
-from spacegame.screens.end_screen import end_screen
-
 
 def update_projectiles(projectiles, player_fleet, enemy_fleet, dt):
     """Update projectiles and apply hit damage, returning the filtered list."""
@@ -158,10 +155,9 @@ def run_game():
             
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                return "exit" # "exit"
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return
+                return "main_menu" # "main_menu"
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # First: fleet management button
                 if fleet_btn.handle_event(event):
@@ -299,8 +295,8 @@ def run_game():
 
         # --- End game when ExpeditionShip dies ---
         if main_player.health <= 0:
-            end_screen()
-            return
+            return "end"  # "end"
+
 
         # --- Collisions (residual): small damage from touching using class-level DPS ---
         handle_collisions(player_fleet, enemy_fleet, dt)
