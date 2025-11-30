@@ -204,7 +204,7 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
 
         # ---- Selected crafts section (title + cards) ----
         selected_title = section_font.render("SELECTED CRAFTS", True, (220, 220, 255))
-        selected_title_y = UI_TOP_BAR_HEIGHT + 10
+        selected_title_y = UI_TOP_BAR_HEIGHT + 30
         screen.blit(
             selected_title,
             (width // 3.75 - selected_title.get_width() // 2, selected_title_y),
@@ -277,6 +277,18 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             dmg_text = dmg_font.render(f"Damage: {int(dmg)}", True, (200, 200, 220))
             screen.blit(dmg_text, (preview_x + 50, rect.y + 44))
 
+        # Draw placeholder cards for incomplete rows in selected crafts section
+        selected_count_with_none = 1 + len(selected_items)
+        if selected_count_with_none > 0:
+            items_per_row = 3
+            remainder = selected_count_with_none % items_per_row
+            if remainder != 0:
+                num_placeholders = items_per_row - remainder
+                full_row_rects = layout_rects(selected_count_with_none + num_placeholders, top_selected_y)
+                for placeholder_rect in full_row_rects[selected_count_with_none:]:
+                    pygame.draw.rect(screen, (20, 35, 60), placeholder_rect, border_radius=0)
+                    pygame.draw.rect(screen, (60, 100, 150), placeholder_rect, 1, border_radius=0)
+
         # ---- Stored crafts section (title + cards) ----
         stored_title_y = (
             (selected_rects[-1].bottom + 40)
@@ -318,6 +330,18 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             elif getattr(entry, "unit_type") == "interceptor":
                 dmg = Interceptor.DEFAULT_BULLET_DAMAGE
             dmg_text = dmg_font.render(f"Damage: {int(dmg)}", True, (200, 200, 220))
+            screen.blit(dmg_text, (preview_x + 50, rect.y + 44))
+
+        # Draw placeholder cards for incomplete rows in stored crafts section
+        if len(stored_items) > 0:
+            items_per_row = 3
+            remainder = len(stored_items) % items_per_row
+            if remainder != 0:
+                num_placeholders = items_per_row - remainder
+                full_row_rects = layout_rects(len(stored_items) + num_placeholders, stored_title_y + 40)
+                for placeholder_rect in full_row_rects[len(stored_items):]:
+                    pygame.draw.rect(screen, (20, 35, 60), placeholder_rect, border_radius=0)
+                    pygame.draw.rect(screen, (60, 100, 150), placeholder_rect, 1, border_radius=0)
             screen.blit(dmg_text, (preview_x + 50, rect.y + 44))
 
         pygame.display.flip()

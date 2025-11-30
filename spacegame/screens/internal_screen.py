@@ -185,8 +185,14 @@ def internal_screen(main_player, player_fleet):
                             selected_tab = idx
                         break
 
-                for _, btn in section_buttons:
-                    btn.handle_event(event)
+                for name, btn in section_buttons:
+                    if btn.handle_event(event):
+                        if name == "STORAGE":
+                            from spacegame.screens.inventory import inventory_screen
+                            res = inventory_screen(main_player, player_fleet)
+                            if res == "to_game":
+                                return "to_game"
+                            # "to_internal" or None: stay in internal screen loop, don't return
 
         # ---------- DRAW ----------
         screen.fill(UI_BG_COLOR)
