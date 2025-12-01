@@ -68,6 +68,37 @@ class HudUI:
                 clicked_ui = True
                 break
 
+        # Check ExpeditionShip preview click: select the mothership if clicked
+        if not clicked_ui:
+            ms_center = self.expeditionship_preview['preview_position']
+            ms_w = self.expeditionship_preview['width']
+            ms_h = self.expeditionship_preview['height']
+            ms_rect = pygame.Rect(int(ms_center.x - ms_w / 2), int(ms_center.y - ms_h / 2), int(ms_w), int(ms_h))
+            if ms_rect.collidepoint(mouse_pos):
+                # select mothership and deselect others
+                for s in player_shapes:
+                    s.selected = False
+                main_player.selected = True
+                clicked_ui = True
+
+        # Check Frigate preview click: select the first Frigate found in player_shapes
+        if not clicked_ui:
+            fr_center = self.frigate_preview['preview_position']
+            fr_w = self.frigate_preview['width'] * 2
+            fr_h = self.frigate_preview['height'] * 2
+            fr_rect = pygame.Rect(int(fr_center.x - fr_w / 2), int(fr_center.y - fr_h / 2), int(fr_w), int(fr_h))
+            if fr_rect.collidepoint(mouse_pos):
+                frigate = None
+                for s in player_shapes:
+                    if isinstance(s, Frigate):
+                        frigate = s
+                        break
+                if frigate is not None and frigate.health > 0.0:
+                    for s in player_shapes:
+                        s.selected = False
+                    frigate.selected = True
+                    clicked_ui = True
+
         # Check mini previews
         if not clicked_ui:
             for i, hangar_slot in enumerate(self.hangar_slots):
@@ -77,8 +108,24 @@ class HudUI:
                     self.preview_size, self.preview_size,
                 )
                 if preview_rect.collidepoint(mouse_pos):
-                    # Toggle deploy/recall button visibility above this preview
-                    hangar_slot['show_button'] = not hangar_slot['show_button']
+                    # If the craft is deployed and alive, select it; otherwise toggle the deploy/recall button
+                    icpts = getattr(main_player, 'hangar_ships', [None, None, None])
+                    fighter_ship = icpts[i] if i < len(icpts) else None
+                    fighter_alive = (
+                        fighter_ship is not None and
+                        fighter_ship in player_shapes and
+                        fighter_ship.health > 0.0
+                    )
+                    if fighter_alive:
+                        # Deselect all other ships and select this one
+                        for s in player_shapes:
+                            s.selected = False
+                        fighter_ship.selected = True
+                        # Also show the deploy/recall button for this deployed ship
+                        hangar_slot['show_button'] = True
+                    else:
+                        # Toggle deploy/recall button visibility above this preview
+                        hangar_slot['show_button'] = not hangar_slot['show_button']
                     clicked_ui = True
                     break
 
@@ -260,6 +307,7 @@ class HudUI:
                 if getattr(fighter_ship, 'max_armor', 0) > 0:
                     armor_y = bar_y + bar_h + 2
                     draw_armor_bar(screen, bar_x, armor_y, bar_w, bar_h, getattr(fighter_ship, 'armor', 0), getattr(fighter_ship, 'max_armor', 0))
+                # (Removed: mining meter above preview)
 
 
             # Draw deploy/recall button above preview if active

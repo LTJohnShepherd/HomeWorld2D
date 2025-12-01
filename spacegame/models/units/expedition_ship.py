@@ -69,6 +69,43 @@ class ExpeditionShip(SpaceUnit):
 
         # Remember the last selected light craft for convenience in input handling.
         self.last_selected_light_craft = None
+        # Simple inventory mapping ore_letter -> quantity (integers)
+        self.inventory = {}
+        # On-screen notifications (list of dicts: ore_letter, amount, elapsed, duration)
+        self.notifications = []
+
+    def add_resource(self, ore_letter: str, amount: int) -> None:
+        """Add mined resource to the ExpeditionShip inventory.
+
+        `ore_letter` is the asteroid ore type (e.g. 'M'). `amount` is integer quantity.
+        """
+        if amount <= 0:
+            return
+        ore_letter = str(ore_letter)
+        current = int(self.inventory.get(ore_letter, 0))
+        self.inventory[ore_letter] = current + int(amount)
+        # Add a short-lived notification for UI display
+        try:
+            # coalesce amount if same ore recently added
+            self.notifications.append({
+                'ore_letter': ore_letter,
+                'amount': int(amount),
+                'elapsed': 0.0,
+                'duration': 3.0,
+            })
+        except Exception:
+            pass
+
+    def update_notifications(self, dt: float) -> None:
+        """Advance notification timers and remove expired entries."""
+        if not getattr(self, 'notifications', None):
+            return
+        remaining = []
+        for n in self.notifications:
+            n['elapsed'] = n.get('elapsed', 0.0) + float(dt)
+            if n['elapsed'] < n.get('duration', 3.0):
+                remaining.append(n)
+        self.notifications = remaining
     def can_deploy(self, slot):
         """Return True if the given slot currently has a ready interceptor in hangar."""
         # Delegate to the Hangar system; it owns slot readiness logic.

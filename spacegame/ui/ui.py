@@ -45,13 +45,14 @@ EXPEDITION_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Carrier_T1_Preview.p
 FRIGATE_PREVIEW_IMG    = pygame.image.load(PREVIEWS_DIR + "/Frigate_Preview.png")
 INTERCEPTOR_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Interceptor_Preview.png")
 RESOURCE_COLLECTOR_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Resource_Collector_Preview.png")
+OREM_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/RUOreM.png")
 
 # Map unit type keys to preview surfaces for easy lookup by UI code.
 PREVIEW_IMAGE_MAP = {
     "expedition": EXPEDITION_PREVIEW_IMG,
     "frigate": FRIGATE_PREVIEW_IMG,
     "interceptor": INTERCEPTOR_PREVIEW_IMG,
-    "resource_collector": RESOURCE_COLLECTOR_PREVIEW_IMG,
+    "resource_collector": RESOURCE_COLLECTOR_PREVIEW_IMG
 }
 
 

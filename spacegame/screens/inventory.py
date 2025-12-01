@@ -1,10 +1,9 @@
 import sys
 import pygame
-from spacegame.ui.fleet_management_ui import (
-    draw_tier_icon
-)
-from spacegame.ui.ui import preview_for_unit
+from spacegame.ui.fleet_management_ui import draw_tier_icon
+from spacegame.ui.ui import preview_for_unit, OREM_PREVIEW_IMG
 from spacegame.models.units.interceptor import Interceptor
+from spacegame.models.resources.orem import RUOreM
 from spacegame.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -17,8 +16,10 @@ from spacegame.config import (
     UI_TAB_TEXT_SELECTED,
     UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
-    UI_NAV_LINE_COLOR
-    )
+    UI_NAV_LINE_COLOR,
+)
+from spacegame.config import PREVIEWS_DIR
+
 
 def inventory_screen(main_player, player_fleet):
     # Use the existing display surface if present; otherwise create one.
@@ -27,7 +28,7 @@ def inventory_screen(main_player, player_fleet):
         screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
     width, height = screen.get_size()
-    
+
     # Inventory constants
     INVENTORY_CAPACITY_LIMIT = 60
 
@@ -47,7 +48,7 @@ def inventory_screen(main_player, player_fleet):
     title_text = "STORAGE"
     title_surf = title_font.render(title_text, True, UI_SECTION_TEXT_COLOR)
     title_rect = title_surf.get_rect(center=(width // 2, TOP_BAR_HEIGHT // 2 - 22))
-    
+
     # Capacity display to the right of title (will be updated each frame)
     capacity_rect = pygame.Rect(0, 0, 200, 30)
     capacity_rect.right = width - 80
@@ -94,7 +95,7 @@ def inventory_screen(main_player, player_fleet):
         entry["rect"] = rect
         x += entry["width"] + tab_spacing
 
-    # ---- layout helpers for the cards (unchanged visually) ----
+    # ---- layout helpers for the cards ----
     BOX_W = 260
     BOX_H = 80
     COLS = 3
@@ -114,8 +115,14 @@ def inventory_screen(main_player, player_fleet):
         return rects
 
     running = True
-    while running:
 
+    # Smooth scrolling state
+    offset_y = 0.0          # what we actually render with
+    offset_y_raw = 0.0      # what the input directly changes
+    SCROLL_STEP = 40
+    SCROLL_SMOOTH = 0.25    # 0..1, higher = snappier
+
+    while running:
         # recompute alive/selected/stored every frame from the Hangar system
         hangar = getattr(main_player, "hangar_system", None)
         if hangar is None:
@@ -124,9 +131,16 @@ def inventory_screen(main_player, player_fleet):
         alive_entries = hangar.alive_pool_entries()
         selected_ids = hangar.selected_interceptor_ids()
 
-        selected_items = [e for e in alive_entries if e.id in selected_ids]
         stored_items = [e for e in alive_entries if e.id not in selected_ids]
+        # Build resources list from main_player inventory if present
+        resources_items = []
+        inv = getattr(main_player, 'inventory', {}) or {}
+        # RU TYPE M mapped to letter 'M'
+        m_qty = int(inv.get('M', 0))
+        if m_qty > 0:
+            resources_items.append(RUOreM(quantity=m_qty))
 
+        # ---------- EVENTS ----------
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -147,47 +161,92 @@ def inventory_screen(main_player, player_fleet):
                 # Tabs
                 for idx, entry in enumerate(tab_entries):
                     if entry["rect"].collidepoint(mx, my):
-                        if entry["label"] == "FLEET CONFIGURATION":
-                            from spacegame.screens.fleet_management import (
-                                fleet_management_screen,
-                            )
-
-                            res = fleet_management_screen(main_player, player_fleet)
-                            if res == "to_game":
-                                return "to_game"
-                            # reset highlight back to INTERNAL after returning
-                            selected_tab = 1
-                        else:
-                            selected_tab = idx
+                        selected_tab = idx
                         break
 
-                # card hit-testing
-                selected_count = len(selected_items)
-                selected_title_y = UI_TOP_BAR_HEIGHT + 10
-                top_selected_y = selected_title_y + 40
-                selected_rects = layout_rects(selected_count, top_selected_y)
+            # Mouse wheel support (pygame 2) and legacy wheel buttons
+            if event.type == pygame.MOUSEWHEEL:
+                # event.y: 1 for wheel up, -1 for wheel down
+                offset_y_raw += event.y * SCROLL_STEP
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button in (4, 5):
+                # legacy mouse wheel: 4=up, 5=down
+                if event.button == 4:   # wheel up
+                    offset_y_raw += SCROLL_STEP
+                else:                   # wheel down
+                    offset_y_raw -= SCROLL_STEP
 
-                if selected_rects:
-                    selected_craft_rects = selected_rects[0:]
-                else:
-                    selected_craft_rects = []
-                
+        # ---------- STATIC LAYOUT (NO OFFSET HERE) ----------
+        ships_title_y = UI_TOP_BAR_HEIGHT + 30
+        ships_top_y = ships_title_y + 40
+        ships_rects = layout_rects(len(stored_items), ships_top_y)
+
+        # Materials
+        materials_title_y = (
+            ships_rects[-1].bottom + 40
+            if ships_rects
+            else (ships_top_y + 40)
+        )
+        materials_top_y = materials_title_y + 40
+        materials_rects = layout_rects(3, materials_top_y)
+
+        resources_title_y = materials_top_y + BOX_H + 40
+        resources_top_y = resources_title_y + 40
+        # If there are no actual resource items, we still reserve space for
+        # three placeholder cards so scrolling and layout remain consistent.
+        resource_count_for_layout = len(resources_items) if len(resources_items) > 0 else 3
+        resource_rects = layout_rects(resource_count_for_layout, resources_top_y)
+
+        # ---------- SCROLL LIMITS + SMOOTH RETURN ----------
+        # Area where content is allowed to be visible (below nav bar)
+        nav_top_y = tabs_y - 6
+        nav_bottom_y = tabs_y + UI_TAB_HEIGHT + 6
+        scroll_area_top = nav_bottom_y + 4
+
+        # Content bounds in "unscrolled" space
+        content_top = ships_title_y
+        # If there are no resource cards, fall back to last materials row or ships
+        if resource_rects:
+            content_bottom = resource_rects[-1].bottom + 40
+        elif materials_rects:
+            content_bottom = materials_rects[-1].bottom + 40
+        elif ships_rects:
+            content_bottom = ships_rects[-1].bottom + 40
+        else:
+            content_bottom = content_top
+
+        # User cannot scroll above original layout (no going above first title)
+        top_limit = 0.0
+
+        # User cannot scroll below last card (bottom edge aligned with scroll area)
+        total_content_height = content_bottom - content_top
+        visible_height = SCREEN_HEIGHT - scroll_area_top
+        if total_content_height <= visible_height:
+            # Everything fits; just keep at 0
+            bottom_limit = 0.0
+        else:
+            bottom_limit = scroll_area_top - total_content_height
+
+        # Clamp "target" and ease offset_y towards it (smooth return to bounds)
+        target = max(min(offset_y_raw, top_limit), bottom_limit)
+        offset_y += (target - offset_y) * SCROLL_SMOOTH
+
+        # Snap if very close, to avoid tiny float drift
+        if abs(target - offset_y) < 0.5:
+            offset_y = target
+
+        # stop internal scroll value from drifting beyond limits
+        offset_y_raw = target
 
         # ---------- DRAW ----------
         screen.fill(UI_BG_COLOR)
 
-        # Nav band coordinates
-        nav_top_y = tabs_y - 6
-        nav_bottom_y = tabs_y + UI_TAB_HEIGHT + 6
-
-        # Brighter strip behind all nav text/buttons
+        # Nav band coordinates (UI that should clip over the cards)
         pygame.draw.rect(
             screen,
             UI_NAV_BG_COLOR,
             (0, nav_top_y, width, nav_bottom_y - nav_top_y),
         )
 
-        # Lines above and below the nav/tab area
         pygame.draw.line(screen, UI_NAV_LINE_COLOR, (0, nav_top_y), (width, nav_top_y), 1)
         pygame.draw.line(
             screen, UI_NAV_LINE_COLOR, (0, nav_bottom_y), (width, nav_bottom_y), 1
@@ -195,9 +254,9 @@ def inventory_screen(main_player, player_fleet):
 
         # Title (on top of nav background)
         screen.blit(title_surf, title_rect)
-        
+
         # Capacity display (dynamically updated each frame)
-        current_inventory_count = len(stored_items)
+        current_inventory_count = len(stored_items) + len(resources_items)
         capacity_text = f"CAPACITY: {current_inventory_count} / {INVENTORY_CAPACITY_LIMIT}"
         capacity_surf = capacity_font.render(capacity_text, True, UI_TAB_TEXT_COLOR)
         capacity_display_rect = capacity_surf.get_rect()
@@ -256,28 +315,30 @@ def inventory_screen(main_player, player_fleet):
                     (rect.right - 6, nav_bottom_y),
                     2,
                 )
-        
-    # ---- Ships section (title + cards) ----
+
+        # ---- SCROLLABLE AREA CLIP (cards + section titles go under the UI) ----
+        scroll_clip_rect = pygame.Rect(0, scroll_area_top, width, height - scroll_area_top)
+        screen.set_clip(scroll_clip_rect)
+
+        # ---- Ships section (title + cards) ----
         ships_title = section_font.render("SHIPS", True, (220, 220, 255))
-        ships_title_y = UI_TOP_BAR_HEIGHT + 30
         screen.blit(
             ships_title,
-            (width // 4.8 - ships_title.get_width() // 2, ships_title_y),
+            (width // 4.8 - ships_title.get_width() // 2, ships_title_y + offset_y),
         )
 
-        ships_top_y = ships_title_y + 40
+        # Draw stored ships as cards
         ships_rects = layout_rects(len(stored_items), ships_top_y)
-
-        # Draw only stored (unused) ships as cards (matching light_craft_selection layout)
         for rect, entry in zip(ships_rects, stored_items):
-            pygame.draw.rect(screen, (30, 40, 70), rect, border_radius=0)
-            pygame.draw.rect(screen, UI_ICON_BLUE, rect, 2, border_radius=0)
+            draw_rect = rect.move(0, offset_y)
+            pygame.draw.rect(screen, (30, 40, 70), draw_rect, border_radius=0)
+            pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
 
             tier_value = getattr(entry, "tier", 0)
-            draw_tier_icon(screen, rect, tier_value)
+            draw_tier_icon(screen, draw_rect, tier_value)
 
-            preview_x = rect.x + 40
-            preview_y = rect.y + rect.height // 2
+            preview_x = draw_rect.x + 40
+            preview_y = draw_rect.y + draw_rect.height // 2
 
             # preview image (pick by unit_type)
             preview_img = preview_for_unit(getattr(entry, "unit_type"))
@@ -285,16 +346,18 @@ def inventory_screen(main_player, player_fleet):
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
-            name = name_font.render(entry.name, True, (230, 230, 255))
-            screen.blit(name, (preview_x + 50, rect.y + 12))
+            name_surf = name_font.render(entry.name, True, (230, 230, 255))
+            screen.blit(name_surf, (preview_x + 50, draw_rect.y + 12))
 
             # show damage (resource collectors have 0 damage)
             if getattr(entry, "unit_type") == "resource_collector":
                 dmg = 0
             elif getattr(entry, "unit_type") == "interceptor":
                 dmg = Interceptor.DEFAULT_BULLET_DAMAGE
+            else:
+                dmg = 0
             dmg_text = dmg_font.render(f"Damage: {int(dmg)}", True, (200, 200, 220))
-            screen.blit(dmg_text, (preview_x + 50, rect.y + 44))
+            screen.blit(dmg_text, (preview_x + 50, draw_rect.y + 44))
 
         # Draw placeholder cards for incomplete rows in ships section
         num_items = len(stored_items)
@@ -302,35 +365,77 @@ def inventory_screen(main_player, player_fleet):
             items_per_row = 3
             remainder = num_items % items_per_row
             if remainder != 0:
-                # Calculate how many placeholders are needed to complete the row
                 num_placeholders = items_per_row - remainder
-                # Create rects for the full row to get placeholder positions
                 full_row_rects = layout_rects(num_items + num_placeholders, ships_top_y)
-                # Draw placeholder cards starting after the last actual item
                 for placeholder_rect in full_row_rects[num_items:]:
-                    pygame.draw.rect(screen, (20, 35, 60), placeholder_rect, border_radius=0)
-                    pygame.draw.rect(screen, (60, 100, 150), placeholder_rect, 1, border_radius=0)
+                    draw_ph = placeholder_rect.move(0, offset_y)
+                    pygame.draw.rect(screen, (20, 35, 60), draw_ph, border_radius=0)
+                    pygame.draw.rect(screen, (60, 100, 150), draw_ph, 1, border_radius=0)
 
         # ---- Materials section (title + placeholder cards) ----
-        materials_title_y = (
-            (ships_rects[-1].bottom + 40)
-            if ships_rects
-            else (ships_top_y + 40)
-        )
-        
         materials_title = section_font.render("MATERIALS", True, (220, 220, 255))
         screen.blit(
             materials_title,
-            (width // 4.3 - materials_title.get_width() // 2, materials_title_y),
+            (width // 4.3 - materials_title.get_width() // 2, materials_title_y + offset_y),
         )
 
-        # Display 3 placeholder cards for materials section
-        materials_top_y = materials_title_y + 40
-        materials_rects = layout_rects(3, materials_top_y)
-
         for rect in materials_rects:
-            # Draw lightly highlighted placeholder box
-            pygame.draw.rect(screen, (20, 35, 60), rect, border_radius=0)
-            pygame.draw.rect(screen, (60, 100, 150), rect, 1, border_radius=0)
+            draw_rect = rect.move(0, offset_y)
+            pygame.draw.rect(screen, (20, 35, 60), draw_rect, border_radius=0)
+            pygame.draw.rect(screen, (60, 100, 150), draw_rect, 1, border_radius=0)
+
+        # ---- Resources section (actual ore cards) ----
+        resources_title = section_font.render("RESOURCES", True, (220, 220, 255))
+        screen.blit(
+            resources_title,
+            (width // 4.25 - resources_title.get_width() // 2, resources_title_y + offset_y),
+        )
+
+        for rect, ore in zip(resource_rects, resources_items):
+            draw_rect = rect.move(0, offset_y)
+            # Card background (match ship card style)
+            pygame.draw.rect(screen, (30, 40, 70), draw_rect, border_radius=0)
+            pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
+            draw_tier_icon(screen, draw_rect, getattr(ore, "tier", 0))
+
+            # Preview image
+            preview_img = OREM_PREVIEW_IMG
+            img = pygame.transform.smoothscale(preview_img, (48, 48))
+            img_rect = img.get_rect(
+                center=(draw_rect.x + 40, draw_rect.y + draw_rect.height // 2)
+            )
+            screen.blit(img, img_rect.topleft)
+
+            # Name and quantity (current amount only)
+            name_surf = name_font.render(ore.name, True, (230, 230, 255))
+            screen.blit(name_surf, (draw_rect.x + 96, draw_rect.y + 30))
+
+            qty_text = f"{ore.quantity:,}"
+            qty_surf = dmg_font.render(qty_text, True, (108, 198, 219))
+            screen.blit(qty_surf, (draw_rect.x + 60, draw_rect.y + 50))
+
+        # Placeholder cards for resource rows. If there are no resource items,
+        # show three placeholder cards to match the other sections.
+        res_count = len(resources_items)
+        items_per_row = 3
+        if res_count == 0:
+            # draw three placeholders
+            full_row_rects = layout_rects(items_per_row, resources_top_y)
+            for placeholder_rect in full_row_rects:
+                draw_ph = placeholder_rect.move(0, offset_y)
+                pygame.draw.rect(screen, (20, 35, 60), draw_ph, border_radius=0)
+                pygame.draw.rect(screen, (60, 100, 150), draw_ph, 1, border_radius=0)
+        else:
+            remainder = res_count % items_per_row
+            if remainder != 0:
+                num_placeholders = items_per_row - remainder
+                full_row_rects = layout_rects(res_count + num_placeholders, resources_top_y)
+                for placeholder_rect in full_row_rects[res_count:]:
+                    draw_ph = placeholder_rect.move(0, offset_y)
+                    pygame.draw.rect(screen, (20, 35, 60), draw_ph, border_radius=0)
+                    pygame.draw.rect(screen, (60, 100, 150), draw_ph, 1, border_radius=0)
+
+        # Reset clip so UI is unaffected
+        screen.set_clip(None)
 
         pygame.display.flip()

@@ -173,40 +173,50 @@ class SpaceUnit(ABC):
         # --- Optional: range circle (for players when selected) ---
         if show_range:
             pygame.draw.circle(surface, (70, 90, 120), (int(self.pos.x), int(self.pos.y)), int(self.fire_range), 1)
-
         # --- Floating health bar above the box ---
-        bar_w = max(40, min(140, int(self.ship_size[0])))
-        bar_h = 6
-        pad = 6
-        bar_x = rect.centerx - bar_w // 2
-        bar_y = rect.top - pad - bar_h
+        # Only show health/armor bars when the unit is damaged (health < max_health or armor < max_armor)
+        show_bars = False
+        try:
+            if getattr(self, 'max_health', 0) > 0 and self.health < self.max_health:
+                show_bars = True
+            if getattr(self, 'max_armor', 0) > 0 and self.armor < self.max_armor:
+                show_bars = True
+        except Exception:
+            show_bars = False
 
-        bg_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
-        pygame.draw.rect(surface, (40, 40, 40), bg_rect, border_radius=3)
+        if show_bars:
+            bar_w = max(40, min(140, int(self.ship_size[0])))
+            bar_h = 6
+            pad = 6
+            bar_x = rect.centerx - bar_w // 2
+            bar_y = rect.top - pad - bar_h
 
-        pct = max(0.0, min(1.0, self.health / self.max_health)) if self.max_health > 0 else 0.0
-        fill_w = int(bar_w * pct + 0.5)
+            bg_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+            pygame.draw.rect(surface, (40, 40, 40), bg_rect, border_radius=3)
 
-        fill_color = (50, 200, 70) if pct >= 0.5 else (220, 70, 70)
-        if fill_w > 0:
-            fill_rect = pygame.Rect(bar_x, bar_y, fill_w, bar_h)
-            pygame.draw.rect(surface, fill_color, fill_rect, border_radius=3)
-        # health bar border
-        pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)
+            pct = max(0.0, min(1.0, self.health / self.max_health)) if self.max_health > 0 else 0.0
+            fill_w = int(bar_w * pct + 0.5)
 
-        # --- Armor bar (if this unit has armor) ---
-        if getattr(self, 'max_armor', 0) > 0:
-            armor_bar_y = bar_y + bar_h + 2
-            armor_bg_rect = pygame.Rect(bar_x, armor_bar_y, bar_w, bar_h)
-            pygame.draw.rect(surface, (20, 40, 70), armor_bg_rect, border_radius=3)
+            fill_color = (50, 200, 70) if pct >= 0.5 else (220, 70, 70)
+            if fill_w > 0:
+                fill_rect = pygame.Rect(bar_x, bar_y, fill_w, bar_h)
+                pygame.draw.rect(surface, fill_color, fill_rect, border_radius=3)
+            # health bar border
+            pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)
 
-            armor_pct = max(0.0, min(1.0, self.armor / self.max_armor)) if self.max_armor > 0 else 0.0
-            armor_fill_w = int(bar_w * armor_pct + 0.5)
-            if armor_fill_w > 0:
-                armor_fill_rect = pygame.Rect(bar_x, armor_bar_y, armor_fill_w, bar_h)
-                pygame.draw.rect(surface, (90, 190, 255), armor_fill_rect, border_radius=3)
+            # --- Armor bar (if this unit has armor) ---
+            if getattr(self, 'max_armor', 0) > 0:
+                armor_bar_y = bar_y + bar_h + 2
+                armor_bg_rect = pygame.Rect(bar_x, armor_bar_y, bar_w, bar_h)
+                pygame.draw.rect(surface, (20, 40, 70), armor_bg_rect, border_radius=3)
 
-            pygame.draw.rect(surface, (10, 10, 10), armor_bg_rect, 1, border_radius=3)
+                armor_pct = max(0.0, min(1.0, self.armor / self.max_armor)) if self.max_armor > 0 else 0.0
+                armor_fill_w = int(bar_w * armor_pct + 0.5)
+                if armor_fill_w > 0:
+                    armor_fill_rect = pygame.Rect(bar_x, armor_bar_y, armor_fill_w, bar_h)
+                    pygame.draw.rect(surface, (90, 190, 255), armor_fill_rect, border_radius=3)
+
+                pygame.draw.rect(surface, (10, 10, 10), armor_bg_rect, 1, border_radius=3)
 
     def point_inside(self, point):
         return self.mover.point_inside(point)

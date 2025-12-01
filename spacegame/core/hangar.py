@@ -145,6 +145,11 @@ class Hangar:
         # remember source slot on the ship itself
         setattr(ship, "hangar_slot", slot)
         setattr(ship, "recalling", False)
+        # remember mothership reference so craft can return to offload resources
+        try:
+            setattr(ship, "mothership", self.owner)
+        except Exception:
+            pass
 
     def on_recalled(self, ship: Any) -> None:
         """

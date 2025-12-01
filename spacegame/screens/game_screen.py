@@ -6,10 +6,11 @@ from spacegame.models.units.expedition_ship import ExpeditionShip
 from spacegame.models.units.frigate import Frigate
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.units.resource_collector import ResourceCollector
+from spacegame.models.asteroids.asteroidm import MineableAsteroidM
 from spacegame.core.mover import Mover
 from spacegame.core.projectile import Projectile
 from spacegame.ui.hud_ui import HudUI
-from spacegame.ui.ui import Button, draw_triangle, draw_diamond, draw_dalton, draw_hex
+from spacegame.ui.ui import Button, draw_triangle, draw_diamond, draw_dalton, draw_hex, OREM_PREVIEW_IMG
 from spacegame.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -138,6 +139,9 @@ def run_game():
         Frigate((500, 400))
         ]
 
+    # Spawn demo mineable asteroids (purity is 0.5 => 50%)
+    asteroids = [MineableAsteroidM((600, 250), purity=0.5)]
+
     enemy_fleet = [
         #PirateFrigate((100, 100)),
         PirateFrigate((700, 120)),
@@ -178,21 +182,32 @@ def run_game():
                 if not clicked_ui:
                     hangar_interface.close_all_previews()
 
-                # Check for click-to-heal with selected resource collectors
+                # Check for click-to-mine / click-to-heal with selected resource collectors
                 if not clicked_ui:
                     selected_collectors = [s for s in player_fleet if isinstance(s, ResourceCollector) and s.selected]
                     if selected_collectors:
-                        # Check if clicking on a ship that can be healed (not the collector itself, and not an enemy)
-                        target_ship = None
-                        for ship in player_fleet:
-                            if ship not in selected_collectors and ship.point_inside(event.pos):
-                                target_ship = ship
+                        # First: if clicking an asteroid, start mining
+                        clicked_asteroid = None
+                        for a in asteroids:
+                            if a.point_inside(event.pos):
+                                clicked_asteroid = a
                                 break
-                        if target_ship:
-                            # Start healing with all selected collectors
+                        if clicked_asteroid is not None:
                             for collector in selected_collectors:
-                                collector.start_healing(target_ship)
-                            clicked_ui = True  # Mark as handled
+                                collector.start_mining(clicked_asteroid)
+                            clicked_ui = True
+                        else:
+                            # Otherwise, check if clicking on a ship that can be healed (not the collector itself)
+                            target_ship = None
+                            for ship in player_fleet:
+                                if ship not in selected_collectors and ship.point_inside(event.pos):
+                                    target_ship = ship
+                                    break
+                            if target_ship:
+                                # Start healing with all selected collectors
+                                for collector in selected_collectors:
+                                    collector.start_healing(target_ship)
+                                clicked_ui = True  # Mark as handled
 
                 # Start selection if clicked elsewhere
                 if not clicked_ui:
@@ -227,7 +242,13 @@ def run_game():
                     # Cancel healing for any selected resource collectors
                     for shape in selected_shapes:
                         if isinstance(shape, ResourceCollector):
+                            # stop healing and also abort mining and clear the fill
                             shape.cancel_healing()
+                            # stop_and_dump resets mining_fill and clears mining_target
+                            try:
+                                shape.stop_and_dump()
+                            except Exception:
+                                pass
                     
                     # Calculate the average position (center) of all selected shapes (formation center)
                     center = sum((s.pos for s in selected_shapes), Vector2(0, 0)) / len(selected_shapes)
@@ -241,9 +262,16 @@ def run_game():
         for s in player_fleet + enemy_fleet:
             s.update_cooldown(dt)
 
-        # --- Update healing for resource collectors ---
+        # Update expedition ship notifications (timers)
+        try:
+            main_player.update_notifications(dt)
+        except Exception:
+            pass
+
+        # --- Update healing and mining for resource collectors ---
         for collector in [s for s in player_fleet if isinstance(s, ResourceCollector)]:
             collector.update_healing(dt)
+            collector.update_mining(dt)
 
         # --- Update movement ---
         for spaceship in player_fleet:
@@ -336,6 +364,10 @@ def run_game():
 
 # --- Draw ---
         screen.blit(background_img, (0, 0))
+        # Draw asteroids under ships
+        for a in asteroids:
+                a.draw(screen)
+
         for spaceship in player_fleet:
             spaceship.draw(screen, show_range=spaceship.selected)
         for enemy in enemy_fleet:
@@ -396,5 +428,46 @@ def run_game():
                         base_color=(120, 200, 255),
                         hover_color=(190, 230, 255),
                         header_text="INTERNAL")
+
+        # --- Draw notifications from the mothership (left side under INTERNAL) ---
+        # Use main_player.notifications entries (ore_letter, amount, elapsed, duration)
+        notif_list = getattr(main_player, 'notifications', [])
+        if notif_list:
+            # popup sizing
+            popup_w = 320
+            popup_h = 40
+            padding = 8
+            icon_size = 32
+            base_x = fleet_btn.rect.left
+            base_y = fleet_btn.rect.bottom + 8
+            small_font = pygame.font.Font(None, 20)
+            for idx, n in enumerate(notif_list):
+                nx = base_x
+                ny = base_y + idx * (popup_h + 6)
+                popup_rect = pygame.Rect(nx, ny, popup_w, popup_h)
+
+                # Transparent, borderless popup: icon + text with subtle shadow for contrast
+                # icon (use OREM preview for type 'M', otherwise skip)
+                try:
+                    icon = OREM_PREVIEW_IMG
+                    icon_s = pygame.transform.smoothscale(icon, (icon_size, icon_size))
+                    screen.blit(icon_s, (nx + padding, ny + (popup_h - icon_size) // 2))
+                except Exception:
+                    pass
+
+                # text with shadow for readability against varied backgrounds
+                ore_letter = n.get('ore_letter', 'M')
+                amount = n.get('amount', 0)
+                ore_name = 'RU Type M Ore' if ore_letter == 'M' else f'Ore {ore_letter}'
+                text = f"Gained: {amount} {ore_name}"
+                tx = nx + padding + icon_size + 8
+                # center vertically in popup area
+                ty = ny + (popup_h - small_font.get_height()) // 2
+                # shadow
+                shadow_surf = small_font.render(text, True, (0, 0, 0))
+                screen.blit(shadow_surf, (tx + 1, ty + 1))
+                # main text
+                text_surf = small_font.render(text, True, (108, 198, 219))
+                screen.blit(text_surf, (tx, ty))
 
         pygame.display.flip()
