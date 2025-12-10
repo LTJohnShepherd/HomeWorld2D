@@ -31,7 +31,7 @@ class FabricatorModule(ShipModule):
     def preview_filename(self) -> str:
         # Temporary: reuse the RU TYPE M ORE preview art
         # until a dedicated Fabricator module icon exists.
-        return "RUOreM.png"
+        return "FabricatorModule.png"
     
 def get_fabricator_modules_for_ship():
     """

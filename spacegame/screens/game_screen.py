@@ -6,17 +6,23 @@ from spacegame.models.units.expedition_ship import ExpeditionShip
 from spacegame.models.units.frigate import Frigate
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.units.resource_collector import ResourceCollector
+from spacegame.models.units.plasma_bomber import PlasmaBomber
+from spacegame.models.asteroids.asteroida import MineableAsteroidA
+from spacegame.models.asteroids.asteroidb import MineableAsteroidB
+from spacegame.models.asteroids.asteroidc import MineableAsteroidC
 from spacegame.models.asteroids.asteroidm import MineableAsteroidM
 from spacegame.core.mover import Mover
 from spacegame.core.projectile import Projectile
 from spacegame.ui.hud_ui import HudUI
 from spacegame.ui.ui import Button, draw_triangle, draw_diamond, draw_dalton, draw_hex, OREM_PREVIEW_IMG
+from spacegame.core.fabrication import get_fabrication_manager
 from spacegame.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
     FPS,
     SEPARATION_ITER,
     IMAGES_DIR,
+    PREVIEWS_DIR,
 )
 from spacegame.screens.internal_screen import internal_screen
 
@@ -66,9 +72,9 @@ def handle_collisions(player_fleet, enemy_fleet, dt):
             for b in player_fleet[i + 1:]:
                 # Light crafts push each other
                 # but don't push larger ships
-                if isinstance(a, (Interceptor, ResourceCollector)) and isinstance(b, (Interceptor, ResourceCollector)):
+                if isinstance(a, (Interceptor, ResourceCollector, PlasmaBomber)) and isinstance(b, (Interceptor, ResourceCollector, PlasmaBomber)):
                     Mover.separate_rotated(a, b)
-                elif not isinstance(a, (Interceptor, ResourceCollector)) and not isinstance(b, (Interceptor, ResourceCollector)):
+                elif not isinstance(a, (Interceptor, ResourceCollector, PlasmaBomber)) and not isinstance(b, (Interceptor, ResourceCollector, PlasmaBomber)):
                     Mover.separate_rotated(a, b)
 
         # Enemy-enemy separation
@@ -140,7 +146,12 @@ def run_game():
         ]
 
     # Spawn demo mineable asteroids (purity is 0.5 => 50%)
-    asteroids = [MineableAsteroidM((600, 250), purity=0.5)]
+    asteroids = [
+        MineableAsteroidA((520, 250), purity=0.5),
+        MineableAsteroidB((680, 250), purity=0.5),
+        MineableAsteroidC((600, 330), purity=0.5),
+        MineableAsteroidM((600, 150), purity=0.5),
+    ]
 
     enemy_fleet = [
         #PirateFrigate((100, 100)),
@@ -275,10 +286,18 @@ def run_game():
         # --- Update cooldowns ---
         for s in player_fleet + enemy_fleet:
             s.update_cooldown(dt)
-
-        # Update expedition ship notifications (timers)
+        # Ensure fabrications are advanced/finalized even while in gameplay.
         try:
-            main_player.update_notifications(dt)
+            fm = get_fabrication_manager(main_player)
+            if fm is not None:
+                fm.update()
+        except Exception:
+            pass
+        # Update expedition ship notifications (timers) via InventoryManager
+        try:
+            inv = getattr(main_player, 'inventory_manager', None)
+            if inv is not None:
+                inv.update(dt)
         except Exception:
             pass
 
@@ -293,7 +312,7 @@ def run_game():
         # --- Handle recalled fighters: fly back to main ship and re-dock ---
         recalled_done = []
         for spaceship in player_fleet:
-            if isinstance(spaceship, (Interceptor, ResourceCollector)) and getattr(spaceship, "recalling", False):
+            if isinstance(spaceship, (Interceptor, ResourceCollector, PlasmaBomber)) and getattr(spaceship, "recalling", False):
                 # Always steer toward the main ship
                 spaceship.mover.set_target(main_player.pos)
 
@@ -306,8 +325,12 @@ def run_game():
             if craft in player_fleet:
                 player_fleet.remove(craft)
 
-            # Inform the Hangar that this craft has successfully docked so the corresponding slot becomes ready again.
-            main_player.hangar_system.on_recalled(craft)
+            # Inform the Hangar (via InventoryManager) that this craft has successfully docked
+            # so the corresponding slot becomes ready again.
+            inv = getattr(main_player, 'inventory_manager', None)
+            if inv is None or getattr(inv, 'hangar', None) is None:
+                raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+            inv.hangar.on_recalled(craft)
         # Enemies: approach to within range, then hold
         for e in enemy_fleet:
             if player_fleet:
@@ -359,11 +382,14 @@ def run_game():
         # Update hangar state for any light crafts that died this frame
         dead_crafts = [
             s for s in player_fleet
-            if isinstance(s, (Interceptor, ResourceCollector)) and s.health <= 0.0
+            if isinstance(s, (Interceptor, ResourceCollector, PlasmaBomber)) and s.health <= 0.0
         ]
         for craft in dead_crafts:
-            # Notify Hangar so it can mark the pool entry dead and clear any slot / assignment.
-            main_player.hangar_system.on_interceptor_dead(craft)
+            # Notify Hangar (via InventoryManager) so it can mark the pool entry dead and clear any slot / assignment.
+            inv = getattr(main_player, 'inventory_manager', None)
+            if inv is None or getattr(inv, 'hangar', None) is None:
+                raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+            inv.hangar.on_interceptor_dead(craft)
 
         enemy_fleet = [s for s in enemy_fleet if s.health > 0.0]
         player_fleet = [s for s in player_fleet if s.health > 0.0]
@@ -400,7 +426,7 @@ def run_game():
                     2
                 )
             # triangle over deployed interceptors
-            elif isinstance(spaceship, Interceptor) and not getattr(spaceship, "recalling", False):
+            elif isinstance(spaceship, (Interceptor, PlasmaBomber)) and not getattr(spaceship, "recalling", False):
                     ship_w, ship_h = spaceship.ship_size
                     draw_triangle(
                         screen,
@@ -444,8 +470,9 @@ def run_game():
                         header_text="INTERNAL")
 
         # --- Draw notifications from the mothership (left side under INTERNAL) ---
-        # Use main_player.notifications entries (ore_letter, amount, elapsed, duration)
-        notif_list = getattr(main_player, 'notifications', [])
+        # Use InventoryManager notifications (centralized)
+        inv_mgr = getattr(main_player, 'inventory_manager', None)
+        notif_list = getattr(inv_mgr, 'notifications', []) if inv_mgr is not None else []
         if notif_list:
             # popup sizing
             popup_w = 320
@@ -461,27 +488,71 @@ def run_game():
                 popup_rect = pygame.Rect(nx, ny, popup_w, popup_h)
 
                 # Transparent, borderless popup: icon + text with subtle shadow for contrast
-                # icon (use OREM preview for type 'M', otherwise skip)
-                try:
-                    icon = OREM_PREVIEW_IMG
-                    icon_s = pygame.transform.smoothscale(icon, (icon_size, icon_size))
-                    screen.blit(icon_s, (nx + padding, ny + (popup_h - icon_size) // 2))
-                except Exception:
-                    pass
-
-                # text with shadow for readability against varied backgrounds
-                ore_letter = n.get('ore_letter', 'M')
-                amount = n.get('amount', 0)
-                ore_name = 'RU Type M Ore' if ore_letter == 'M' else f'Ore {ore_letter}'
-                text = f"Gained: {amount} {ore_name}"
-                tx = nx + padding + icon_size + 8
-                # center vertically in popup area
+                # Support multiple notification types. Default is ore delivery.
+                notif_type = n.get('type', 'ore')
+                tx = nx + padding
                 ty = ny + (popup_h - small_font.get_height()) // 2
-                # shadow
-                shadow_surf = small_font.render(text, True, (0, 0, 0))
-                screen.blit(shadow_surf, (tx + 1, ty + 1))
-                # main text
-                text_surf = small_font.render(text, True, (108, 198, 219))
-                screen.blit(text_surf, (tx, ty))
+
+                if notif_type == 'fabrication':
+                    # try blueprint preview (from PREVIEWS_DIR), otherwise fallback to OREM_PREVIEW_IMG
+                    preview_fn = n.get('preview')
+                    if preview_fn:
+                        try:
+                            icon = pygame.image.load(PREVIEWS_DIR + "/" + preview_fn).convert_alpha()
+                            icon_s = pygame.transform.smoothscale(icon, (icon_size, icon_size))
+                            screen.blit(icon_s, (nx + padding, ny + (popup_h - icon_size) // 2))
+                        except Exception:
+                            try:
+                                icon = OREM_PREVIEW_IMG
+                                icon_s = pygame.transform.smoothscale(icon, (icon_size, icon_size))
+                                screen.blit(icon_s, (nx + padding, ny + (popup_h - icon_size) // 2))
+                            except Exception:
+                                pass
+                    else:
+                        try:
+                            icon = OREM_PREVIEW_IMG
+                            icon_s = pygame.transform.smoothscale(icon, (icon_size, icon_size))
+                            screen.blit(icon_s, (nx + padding, ny + (popup_h - icon_size) // 2))
+                        except Exception:
+                            pass
+
+                    title = n.get('title', 'Fabrication Complete')
+                    text = f"Fabrication complete: {title}"
+                    tx = nx + padding + icon_size + 8
+                    # shadow
+                    shadow_surf = small_font.render(text, True, (0, 0, 0))
+                    screen.blit(shadow_surf, (tx + 1, ty + 1))
+                    # main text
+                    text_surf = small_font.render(text, True, (108, 198, 219))
+                    screen.blit(text_surf, (tx, ty))
+                else:
+                    # default: ore delivery notification (existing behaviour)
+                    try:
+                        # Use provided preview filename if the notification included one
+                        preview_fn = n.get('preview')
+                        if preview_fn:
+                            try:
+                                icon = pygame.image.load(PREVIEWS_DIR + "/" + preview_fn).convert_alpha()
+                            except Exception:
+                                icon = OREM_PREVIEW_IMG
+                        else:
+                            icon = OREM_PREVIEW_IMG
+                        icon_s = pygame.transform.smoothscale(icon, (icon_size, icon_size))
+                        screen.blit(icon_s, (nx + padding, ny + (popup_h - icon_size) // 2))
+                    except Exception:
+                        pass
+
+                    # text with shadow for readability against varied backgrounds
+                    ore_letter = n.get('ore_letter', 'M')
+                    amount = n.get('amount', 0)
+                    ore_name = 'RU Type M Ore' if ore_letter == 'M' else f'Ore {ore_letter}'
+                    text = f"Gained: {amount} {ore_name}"
+                    tx = nx + padding + icon_size + 8
+                    # shadow
+                    shadow_surf = small_font.render(text, True, (0, 0, 0))
+                    screen.blit(shadow_surf, (tx + 1, ty + 1))
+                    # main text
+                    text_surf = small_font.render(text, True, (108, 198, 219))
+                    screen.blit(text_surf, (tx, ty))
 
         pygame.display.flip()

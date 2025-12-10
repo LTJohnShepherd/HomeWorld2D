@@ -9,7 +9,6 @@ from spacegame.config import (
     UI_TITLE_COLOR,
     UI_TAB_UNDERLINE_COLOR,
     UI_TAB_TEXT_SELECTED,
-    UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR,
     UI_ICON_BLUE,
@@ -17,6 +16,7 @@ from spacegame.config import (
 )
 from spacegame.ui.fleet_management_ui import draw_tier_icon
 from spacegame.models.modules.fabricatormodule import FabricatorModule
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
 
 
 def internal_modules_screen(main_player, player_fleet):
@@ -60,45 +60,22 @@ def internal_modules_screen(main_player, player_fleet):
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
     selected_tab = 4  # INTERNAL MODULES selected
-    tab_spacing = 16
 
-    tab_entries: list[dict] = []
-    total_tabs_width = -tab_spacing
-    # Measure and compute widths (icon + text + padding)
-    icon_size = 24
-    ICON_MARGIN = 10
-    H_PADDING = 24
-
-    for label in tab_labels:
-        text_surf = tab_font.render(label, True, UI_TAB_TEXT_COLOR)
-        text_width = text_surf.get_width()
-        tab_width = icon_size + ICON_MARGIN + text_width + H_PADDING * 2
-        tab_entries.append({"label": label, "text_surf": text_surf, "width": tab_width})
-        total_tabs_width += tab_width + tab_spacing
-
-    # Move tabs slightly lower so they are not too close to the title text
-    tabs_y = TOP_BAR_HEIGHT - UI_TAB_HEIGHT - 4
-    tabs_left = width // 2 - total_tabs_width // 2
-
-    # Create rects for tabs
-    x = tabs_left
-    for entry in tab_entries:
-        rect = pygame.Rect(x, tabs_y, entry["width"], UI_TAB_HEIGHT)
-        entry["rect"] = rect
-        x += entry["width"] + tab_spacing
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
 
     # ---------- MODULE DATA ----------
     SECTION_MODULES = [
         [],
         [
-            FabricatorModule(tier=2, module_size=72, base_fabrication_time=0.8),
-            FabricatorModule(tier=2, module_size=72, base_fabrication_time=0.8),
+            FabricatorModule(tier=1, module_size=72, base_fabrication_time=1.0)
         ],
         [],
     ]
 
-    # Three independent sections with their own capacity limits
-    SECTION_CAPACITY_LIMITS = [170, 220, 170]
+    # Capacity limits are persisted on the player's ExpeditionShip so they
+    # survive navigation between screens. Fall back to sensible defaults
+    # if the attribute is missing on older ship objects.
+    SECTION_CAPACITY_LIMITS = getattr(main_player, 'internal_section_capacity_limits')
     selected_section = 0  # 0 -> "01", 1 -> "02", 2 -> "03"
 
     # Layout constants for module cards (inventory style)
@@ -125,7 +102,7 @@ def internal_modules_screen(main_player, player_fleet):
     clock = pygame.time.Clock()
 
     while running:
-        dt = clock.tick(60)
+        clock.tick(60)
 
         # ---------- STATIC LAYOUT THAT DEPENDS ON NAV POSITION ----------
         nav_top_y = tabs_y - 6
@@ -229,7 +206,13 @@ def internal_modules_screen(main_player, player_fleet):
 
         # ---------- CAPACITY CALCULATION FOR CURRENT SECTION ----------
         capacity_used = sum(m.capacity for m in current_modules)
-        capacity_max = SECTION_CAPACITY_LIMITS[selected_section]
+        # read per-section capacity from the ship (fallback to default list)
+        capacity_limits = getattr(main_player, 'internal_section_capacity_limits', SECTION_CAPACITY_LIMITS)
+        # clamp selected_section index
+        if selected_section < 0 or selected_section >= len(capacity_limits):
+            capacity_max = SECTION_CAPACITY_LIMITS[0] if capacity_limits else 0
+        else:
+            capacity_max = capacity_limits[selected_section]
         clamped_used = min(capacity_used, capacity_max)
         capacity_ratio = clamped_used / float(capacity_max) if capacity_max > 0 else 0.0
 
@@ -266,55 +249,8 @@ def internal_modules_screen(main_player, player_fleet):
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
 
-        # Tabs (transparent background: only icon, text, highlight on nav lines)
-        for idx, entry in enumerate(tab_entries):
-            rect = entry["rect"]
-            is_selected_tab = idx == selected_tab
-
-            icon_rect = pygame.Rect(0, 0, icon_size, icon_size)
-            icon_rect.centery = rect.centery
-            icon_rect.left = rect.left + H_PADDING
-            pygame.draw.rect(
-                screen,
-                (210, 220, 235) if is_selected_tab else (170, 190, 210),
-                icon_rect,
-                border_radius=4,
-                width=2,
-            )
-
-            # small "chip" notch on the left of the icon rect, to match other screens
-            notch_width = 4
-            pygame.draw.rect(
-                screen,
-                UI_BG_COLOR,
-                (icon_rect.left - notch_width, icon_rect.top + 6, notch_width, icon_rect.height - 12),
-            )
-
-            # Label text to the right of the icon
-            label_surf = entry["text_surf"]
-            label_color = UI_TAB_TEXT_SELECTED if is_selected_tab else UI_TAB_TEXT_COLOR
-            label_surf = tab_font.render(entry["label"], True, label_color)
-            label_rect = label_surf.get_rect()
-            label_rect.centery = rect.centery
-            label_rect.left = icon_rect.right + ICON_MARGIN
-            screen.blit(label_surf, label_rect)
-
-            if is_selected_tab:
-                # highlight segments exactly on the top/bottom nav lines
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_top_y),
-                    (rect.right - 6, nav_top_y),
-                    2,
-                )
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_bottom_y),
-                    (rect.right - 6, nav_bottom_y),
-                    2,
-                )
+        # Tabs (draw using shared nav helper)
+        nav_top_y, nav_bottom_y = draw_tabs(screen, tab_entries, selected_tab, tabs_y, width, tab_font)
 
         # ---------- MAIN CONTENT ----------
 
@@ -382,9 +318,9 @@ def internal_modules_screen(main_player, player_fleet):
                 pygame.draw.rect(screen, (40, 40, 60), thumb_rect)
                 pygame.draw.rect(screen, UI_ICON_BLUE, thumb_rect, 1)
             
-                        # Level / capacity line at the top-right of card (inventory-style meta text)
+            # Level / capacity line at the top-right of card (inventory-style meta text)
             level = getattr(module, "level", 1)
-            meta_text = f"LVL. {level:02d}   x{module.capacity}"
+            meta_text = f"LVL. {level:02d}"
             meta_surf = small_font.render(meta_text, True, (200, 200, 220))
             meta_rect = meta_surf.get_rect()
             meta_rect.top = rect.top + 8
@@ -394,7 +330,7 @@ def internal_modules_screen(main_player, player_fleet):
 
             # Module name (two-line if it contains a space)
             name = module.name
-            text_x = meta_rect.left
+            text_x = meta_rect.left - 60
 
             if " " in name:
                 first, second = name.split(" ", 1)
@@ -458,7 +394,7 @@ def internal_modules_screen(main_player, player_fleet):
 
         # "+" icon on the left of the button with a circular outline
         plus_size = 18
-        plus_center = (mount_btn_rect.left + 30, mount_btn_rect.centery)
+        plus_center = (mount_btn_rect.left + 50, mount_btn_rect.centery)
         pygame.draw.line(
             screen,
             corner_color,
@@ -481,7 +417,7 @@ def internal_modules_screen(main_player, player_fleet):
         line1_surf = tab_font.render("MOUNT", True, (200, 230, 255))
         line2_surf = tab_font.render("MODULE", True, (200, 230, 255))
 
-        text_left = plus_center[0] + plus_size // 2 + 16
+        text_left = plus_center[0] + plus_size * 3
         line1_rect = line1_surf.get_rect()
         line2_rect = line2_surf.get_rect()
         line1_rect.left = text_left

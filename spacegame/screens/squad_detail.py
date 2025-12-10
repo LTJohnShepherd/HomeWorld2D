@@ -7,9 +7,11 @@ from spacegame.ui.fleet_management_ui import (
 )
 
 from pygame.math import Vector2
-from spacegame.ui.ui import preview_for_unit, draw_triangle, draw_dalton
+from spacegame.ui.ui import preview_for_unit, draw_triangle, draw_dalton, draw_plus_circle
 from spacegame.models.units.frigate import Frigate
 from spacegame.models.units.interceptor import Interceptor
+from spacegame.models.units.plasma_bomber import PlasmaBomber
+from spacegame.models.units.resource_collector import ResourceCollector
 from spacegame.config import (
     SCREEN_WIDTH, 
     SCREEN_HEIGHT, 
@@ -43,13 +45,20 @@ def _compute_squad_stats(is_equipped: bool, hangar=None, slot_index: int = None,
     if hasattr(hangar, "ships") and 0 <= slot_index < len(hangar.ships):
         ship = hangar.ships[slot_index]
 
-    if ship is None:
-        # Not currently deployed: build a temporary preview interceptor to
+        if ship is None:
+        # Not currently deployed: build a temporary preview unit to
         # compute true stats for this squad based on the current tier/config.
-        try:
-            ship = Interceptor((0, 0), interceptor_id=entry.id, tier=getattr(entry, "tier", 0))
-        except Exception:
-            ship = None
+            unit_type = getattr(entry, 'unit_type', 'interceptor')
+            tier_val = getattr(entry, 'tier', 0)
+            if unit_type == 'interceptor':
+                ship = Interceptor((0, 0), interceptor_id=entry.id, tier=tier_val)
+            elif unit_type == 'plasma_bomber':
+                ship = PlasmaBomber((0, 0), bomber_id=entry.id, tier=tier_val)
+            elif unit_type == 'resource_collector':
+                ship = ResourceCollector((0, 0), collector_id=entry.id, tier=tier_val)
+            else:
+                ship = Interceptor((0, 0), interceptor_id=entry.id, tier=tier_val)
+
 
     if ship is None:
         return {
@@ -74,8 +83,11 @@ def _compute_squad_stats(is_equipped: bool, hangar=None, slot_index: int = None,
 
 
 def _gather_slot_info(main_player, player_fleet, slot_index: int):
-    hangar = getattr(main_player, "hangar_system", None)
-    if hangar is None or not (0 <= slot_index < hangar.num_slots):
+    inv = getattr(main_player, 'inventory_manager', None)
+    if inv is None or getattr(inv, 'hangar', None) is None:
+        raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+    hangar = inv.hangar
+    if not (0 <= slot_index < hangar.num_slots):
         return {
             "is_equipped": False,
             "name": "NONE",
@@ -115,7 +127,7 @@ def _gather_slot_info(main_player, player_fleet, slot_index: int):
     rarity = getattr(entry, "rarity", "COMMON")
     tier = int(getattr(entry, "tier", 0))
 
-    # Slot readiness is still based on hangar.slots
+    # Slot readiness is based on hangar.slots
     ready_ships = 1 if hangar.slots[slot_index] else 0
     max_ships = 1
     selected_ship_index = 0 if ready_ships > 0 else -1
@@ -137,6 +149,15 @@ def _gather_slot_info(main_player, player_fleet, slot_index: int):
 
 
 def squad_detail_screen(main_player, player_fleet, slot_index: int):
+    """Show detailed info for a hangar slot's squad and allow changes.
+
+    - `main_player` must expose `inventory_manager.hangar`.
+    - `player_fleet` is used to show deployed ship status and previews.
+    - `slot_index` selects which hangar slot to inspect/modify.
+
+    Returns `None` normally, or `"to_game"` when the UI requests returning
+    to the gameplay screen.
+    """
     screen = pygame.display.get_surface()
     if screen is None:
         screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -228,9 +249,12 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
         stats = slot_info["stats"]
 
         # ---- detect if this squad is currently deployed (alive ship in this slot) ----
-        hangar = getattr(main_player, "hangar_system", None)
+        inv = getattr(main_player, 'inventory_manager', None)
+        if inv is None or getattr(inv, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        hangar = inv.hangar
         is_deployed = False
-        if hangar is not None and 0 <= slot_index < getattr(hangar, "num_slots", 0):
+        if 0 <= slot_index < hangar.num_slots:
             ship = hangar.ships[slot_index]
             if ship is not None and getattr(ship, "health", 0.0) > 0.0:
                 is_deployed = True
@@ -244,12 +268,8 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
         remove_hit_rect.center = remove_center
 
         # --- prepare hangar / assignments / dot positions for clicks + drawing ---
-        if hangar is not None:
-            num_slots = hangar.num_slots
-            assignments = hangar.assignments
-        else:
-            assignments = getattr(main_player, "hangar_assignments", [])
-            num_slots = len(assignments)
+        num_slots = hangar.num_slots
+        assignments = hangar.assignments
 
         slot_dot_positions = []
         if num_slots > 0:
@@ -279,9 +299,7 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
 
                 # only allow remove if equipped and not currently deployed
                 if is_equipped and (not is_deployed) and remove_hit_rect.collidepoint(mx, my):
-                    hangar = getattr(main_player, "hangar_system", None)
-                    if hangar is not None:
-                        hangar.clear_slot(slot_index)
+                    hangar.clear_slot(slot_index)
                     return
 
                 # plus: only when nothing is equipped
@@ -335,8 +353,8 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
         screen.blit(close_surf, close_rect)
 
         # -------- Section titles + lines (CURRENT LOADOUT / SQUADS / ESCORTS) --------
-        total_slots = len(main_player.hangar_assignments)
-        equipped_slots = sum(1 for a in main_player.hangar_assignments if a is not None)
+        total_slots = len(hangar.assignments)
+        equipped_slots = sum(1 for a in hangar.assignments if a is not None)
         frigates = [s for s in player_fleet if isinstance(s, Frigate)]
         alive_frigates = [f for f in frigates if getattr(f, "health", 0) > 0]
         draw_fleet_section_titles(
@@ -353,6 +371,7 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
             equipped_slots,
             len(frigates),
             len(alive_frigates),
+            nav_center_y,
         )
 
         # -------- LEFT CARD --------
@@ -371,10 +390,12 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
         screen.blit(rarity_surf, rarity_rect)
 
         # big squad name
-        name_surf = name_font.render(slot_info["name"].upper(), True, UI_SECTION_TEXT_COLOR)
-        name_rect = name_surf.get_rect()
-        name_rect.topleft = (card_rect.left + 24, card_rect.top + 42)
-        screen.blit(name_surf, name_rect)
+        # Render as a single line here (do not break into multiple lines
+        # even if the stored name contains '\n'). Replace newlines with a space.
+        name_text = slot_info["name"].upper()
+        single_name = name_text.replace("\n", " ")
+        name_surf = name_font.render(single_name, True, UI_SECTION_TEXT_COLOR)
+        screen.blit(name_surf, (card_rect.left + 24, card_rect.top + 42))
 
         # stats with underline per row
         stats_top = card_rect.top + 96
@@ -420,15 +441,7 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
 
         ocx, ocy = officer_box_rect.center
         inner_radius = int(officer_box_size / 2.8)
-        pygame.draw.circle(screen, UI_TITLE_COLOR, (ocx, ocy), inner_radius, 2)
-
-        plus_size = 14  # keep plus size fixed
-        pygame.draw.line(
-            screen, UI_TITLE_COLOR, (ocx - plus_size, ocy), (ocx + plus_size, ocy), 2
-        )
-        pygame.draw.line(
-            screen, UI_TITLE_COLOR, (ocx, ocy - plus_size), (ocx, ocy + plus_size), 2
-        )
+        draw_plus_circle(screen, (ocx, ocy), inner_radius, UI_TITLE_COLOR, plus_size=14, circle_thickness=2, plus_thickness=2)
 
         officer_lbl = officer_font.render("ASSIGN OFFICER", True, UI_SECTION_TEXT_COLOR)
         officer_lbl_rect = officer_lbl.get_rect()
@@ -455,12 +468,12 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
         if is_equipped:
             # Determine the equipped entry and pick the preview via helper
             entry = None
-            try:
-                hangar = getattr(main_player, "hangar_system", None)
-                assigned_id = hangar.assignments[slot_index] if hangar is not None else None
-                entry = hangar.get_entry_by_id(assigned_id) if (hangar is not None and assigned_id is not None) else None
-            except Exception:
-                entry = None
+            inv = getattr(main_player, 'inventory_manager', None)
+            if inv is None or getattr(inv, 'hangar', None) is None:
+                raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+            hangar = inv.hangar
+            assigned_id = hangar.assignments[slot_index] if 0 <= slot_index < len(hangar.assignments) else None
+            entry = hangar.get_entry_by_id(assigned_id) if assigned_id is not None else None
 
             unit_type = getattr(entry, "unit_type") if entry is not None else "interceptor"
             ship_preview = preview_for_unit(unit_type)
@@ -486,10 +499,13 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
                     2,
                 )
 
-            # ship preview
+            # ship preview: scale to a fixed width but preserve the preview's
+            # aspect ratio so resource collector images are not vertically squished.
+            base_preview = ship_preview
+            base_w, base_h = base_preview.get_size()
             ship_w = 160
-            ship_h = 100
-            ship_img = pygame.transform.smoothscale(ship_preview, (ship_w, ship_h))
+            ship_h = int(base_h * (ship_w / base_w)) if base_w > 0 else 100
+            ship_img = pygame.transform.smoothscale(base_preview, (ship_w, ship_h))
             ship_rect = ship_img.get_rect()
             ship_rect.center = (int(preview_center.x), int(preview_center.y))
             screen.blit(ship_img, ship_rect.topleft)

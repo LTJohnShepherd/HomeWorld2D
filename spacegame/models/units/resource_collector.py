@@ -1,20 +1,19 @@
 import pygame
-from pygame.math import Vector2
 from spacegame.models.units.fleet_unit import SpaceUnit
 from spacegame.config import IMAGES_DIR
 
 
 class ResourceCollector(SpaceUnit):
-    """Small deployable resource collector light craft.
+    """Deployable support craft that can heal allied ships and mine asteroids.
 
-    Resource collectors can heal the health and armor of large ships by
-    navigating to them and transferring resources over time. They can also
-    mine asteroids and carry resources back to their mothership.
+    The collector handles two main responsibilities:
+    - Healing: navigate to allied ships and transfer armor/health over time.
+    - Mining: extract ore from asteroids, carry it, and unload at the mothership.
     """
 
-    # Healing configuration
-    HEAL_RATE = 15.0  # health/armor healed per second
-    HEAL_RANGE = 60.0  # must be within this distance to heal
+    # Healing configuration: amount healed per second and effective range (pixels)
+    HEAL_RATE = 15.0
+    HEAL_RANGE = 60.0
 
     def shape_id(self):
         return "resource_collector"
@@ -24,51 +23,49 @@ class ResourceCollector(SpaceUnit):
         return getattr(self, "tier", 0)
 
     def __init__(self, start_pos, collector_id=None, tier: int = 0, **kwargs):
-        # per-ship tier value
+        # per-instance tier (default 0)
         self.tier = tier
-        # load resource collector sprite
+
+        # Load, orient, and scale the collector sprite used for rendering.
         sprite = pygame.image.load(IMAGES_DIR + "/ResourceCollector.png").convert_alpha()
-        # rotate so it faces like the other ships (to the right at angle 0)
         sprite = pygame.transform.rotate(sprite, -90)
+        scaled_sprite = pygame.transform.smoothscale(sprite, (sprite.get_width() // 24, sprite.get_height() // 24))
 
-        # scale down (adjust factor if you want a different size)
-        scaled_sprite = pygame.transform.smoothscale(
-            sprite,
-            (sprite.get_width() // 24, sprite.get_height() // 24)
-        )
-
-        # use sprite size for collisions / drawing
+        # Initialize base visual / collision size from the scaled sprite.
         super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
         self.base_surf = scaled_sprite
 
-        # id in the ExpeditionShip's resource collector pool (if any)
+        # Optional pool identifier assigned by the mothership's Hangar
         self.collector_id = collector_id
 
-        # recall state
+        # Hangar/docking flags
         self.recalling = False
         self.hangar_slot = None
 
-        # link to mothership will be attached by Hangar.on_deployed
+        # Mothership reference is set by Hangar.on_deployed when spawned
         self.mothership = None
 
-        # Resource collectors do 0 damage
+        # Combat/health values
         self.bullet_damage = 0.0
-        # Give resource collectors a small armor pool so they can take armor damage
-        self.max_armor = 50.0
+        self.armor_damage = 0.0
+        self.max_health = 2100.0
+        self.health = self.max_health
+        self.max_armor = 210.0
         self.armor = self.max_armor
 
-        # ---- Healing state ----
-        self.healing_target = None  # The ship being healed (or None)
+        # Healing state: target ship to heal (or None)
+        self.healing_target = None
 
-        # ---- Mining state ----
-        self.mining_target = None  # Asteroid instance being mined
-        self.mining_fill = 0.0     # current filled units (0..mining_capacity)
-        self.mining_capacity = 150.0  # amount of "space" in collector
-        self.MINE_RATE = 10.0      # units filled per second while mining
-        self.MINE_RANGE = 60.0     # must be within this distance to mine
+        # Mining state: current asteroid, carried fill and rates/capacity
+        self.mining_target = None
+        self.mining_fill = 0.0
+        self.mining_capacity = 150.0
+        self.MINE_RATE = 10.0
+        self.MINE_RANGE = 60.0
         self.returning_to_ship = False
-        self.UNLOAD_RATE = 75.0    # units unloaded per second when at mothership
-        # Make the visible targeting circle match the heal/mining range
+        self.UNLOAD_RATE = 75.0
+
+        # Visual overlay radius used by UI; keep in sync with heal range
         self.fire_range = float(self.HEAL_RANGE)
 
     def start_healing(self, target):
@@ -131,7 +128,18 @@ class ResourceCollector(SpaceUnit):
     # ---------- Mining API ----------
     def start_mining(self, asteroid):
         """Begin mining the given asteroid (cancels healing)."""
+        # Cancel any healing first
         self.cancel_healing()
+        # If already carrying or filling, immediately dump current contents to space
+        try:
+            self.stop_and_dump()
+        except Exception:
+            # fallback: clear mining state fields
+            self.mining_target = None
+            self.mining_fill = 0.0
+            self.returning_to_ship = False
+
+        # Start mining the new asteroid
         self.mining_target = asteroid
         self.returning_to_ship = False
         # navigate to asteroid
@@ -159,6 +167,23 @@ class ResourceCollector(SpaceUnit):
         """Update mining state: approach asteroid, fill, return and unload."""
         # If we have no mothership (should be set by Hangar.on_deployed), nothing to do
         mothership = getattr(self, "mothership", None)
+
+        # If we've been ordered to recall, cancel any active mining and go home.
+        # We intentionally dump held resources to space (stop_and_dump) so the
+        # collector does not try to unload or resume mining before docking.
+        if getattr(self, "recalling", False):
+            # Immediately stop mining and drop carried fill (dump to space)
+            try:
+                self.stop_and_dump()
+            except Exception:
+                # fallback: clear fields
+                self.mining_target = None
+                self.mining_fill = 0.0
+                self.returning_to_ship = False
+            # Ensure we head straight to mothership to dock
+            if mothership is not None:
+                self.mover.set_target(mothership.pos)
+
 
         # Active mining at asteroid
         if self.mining_target is not None and not self.returning_to_ship:
@@ -192,9 +217,14 @@ class ResourceCollector(SpaceUnit):
                     # Determine amount of ore delivered using asteroid purity
                     if self.mining_target is not None:
                         amount = int(round(self.mining_capacity * float(self.mining_target.purity)))
-                        # Add to mothership inventory via method if available
-                        if hasattr(mothership, 'add_resource'):
-                            mothership.add_resource(self.mining_target.ore_type, amount)
+                        # Add to mothership inventory via InventoryManager
+                        # This intentionally requires a registered InventoryManager on the mothership.
+                        if mothership is None:
+                            raise RuntimeError("ResourceCollector has no mothership to deliver resources to")
+                        inv = getattr(mothership, 'inventory_manager', None)
+                        if inv is None:
+                            raise RuntimeError("Mothership missing InventoryManager; migration required")
+                        inv.add_resource(self.mining_target.ore_type, amount)
                     # Reset fill and continue mining loop (go back to asteroid)
                     self.mining_fill = 0.0
                     self.returning_to_ship = False

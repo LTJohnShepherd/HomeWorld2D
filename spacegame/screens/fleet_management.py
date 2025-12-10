@@ -1,3 +1,10 @@
+"""Fleet management screen and helpers.
+
+This module provides the in-game fleet management UI which reads hangar
+state from `main_player.inventory_manager.hangar` and allows inspecting
+and assigning light-craft to slots.
+"""
+
 import sys
 import pygame
 from spacegame.ui.fleet_management_ui import (
@@ -20,36 +27,38 @@ from spacegame.config import UI_ICON_BLUE, UI_ICON_WHITE
 
 
 def _build_hangar_snapshot(main_player):
-    """Build a hangar snapshot using the Hangar system on the main player.
+    """Return the current hangar snapshot from the player's registered Hangar.
 
-    The Hangar instance is the single source of truth. We simply delegate to its
-    snapshot() helper, which returns:
-      - assignments: list of interceptor ids per slot
-      - ships: list of Interceptor objects (or None) per slot
-      - pool_by_id: dict[id] -> InterceptorEntry
+    Returns a tuple (assignments, ships, pool_by_id). Raises a RuntimeError
+    if `inventory_manager.hangar` is not present on `main_player`.
     """
-    hangar = getattr(main_player, "hangar_system", None)
-    if hangar is None or not hasattr(hangar, "snapshot"):
+    inv = getattr(main_player, 'inventory_manager', None)
+    if inv is None or getattr(inv, 'hangar', None) is None:
+        raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+    hangar = inv.hangar
+    if not hasattr(hangar, "snapshot"):
         return [], [], {}
     return hangar.snapshot()
 
 
 def _entry_is_alive(entry) -> bool:
+    """Return True if the given pool entry exists and is marked alive."""
     return bool(getattr(entry, "alive", False))
 
 
 def _entry_name(entry) -> str:
+    """Return the display name for a hangar pool entry, with a safe fallback."""
     name = getattr(entry, "name", None)
     return name if name is not None else "Interceptor"
 
 
 def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
-    """
-    Fleet management screen (new Hangar system only):
-    - 3 slots in a vertical column.
-    - Empty slot: hollow circle with '+'.
-    - Assigned slot: interceptor preview image drawn instead of the circle.
-    - Clicking a slot opens a stored crafts screen.
+    """Main fleet management UI.
+
+    Displays the mothership preview, squad slots and an escort preview. The
+    function renders a live view of the hangar (queried each frame) and
+    returns `"to_game"` if the user requests returning to gameplay; otherwise
+    it exits normally (None).
     """
     screen = pygame.display.get_surface()
     if screen is None:
@@ -124,11 +133,9 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                     return "to_game"
 
                 for idx, c_rect in enumerate(circle_rects):
-                    # Build a larger "squad card" hit rect that covers the
-                    # title (drawn above c_rect.top), the tier flag next to it,
-                    # and the visible preview which is drawn lowered by
-                    # PREVIEW_OFFSET_Y. Do NOT shift the card after creation;
-                    # instead compute top/bottom to include both regions.
+                    # Create a hit rectangle that spans the title area above
+                    # the slot and the lowered preview area below. This allows
+                    # clicking anywhere in the visual squad card to open details.
                     name_height = label_font.size("M")[1]
                     # title is drawn at: title_y = c_rect.top - (name_height + 6)
                     title_y = c_rect.top - (name_height + 6)
@@ -155,7 +162,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                             return "to_game"
                         break
 
-        # Rebuild a fresh snapshot of hangar state each frame (new system only)
+        # Rebuild a fresh snapshot of hangar state each frame (authoritative)
         assignments, ships, pool_by_id = _build_hangar_snapshot(main_player)
 
         # ------------- DRAW -------------
@@ -195,6 +202,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
             equipped_slots,
             len(frigates),
             len(alive_frigates),
+            nav_center_y,
         )
 
         # LEFT: expedition ship preview and HP
@@ -265,8 +273,10 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                 img_rect = icpt_img.get_rect(center=slot_center)
                 screen.blit(icpt_img, img_rect.topleft)
 
-                # Ship name: left-align above the slot
-                name_surf = label_font.render(_entry_name(assigned_entry), True, (220, 220, 255))
+                # Ship name: left-align above the slot. Render single-line
+                # even if the stored name contains newlines (replace with space).
+                single_name = _entry_name(assigned_entry).replace("\n", " ")
+                name_surf = label_font.render(single_name, True, (220, 220, 255))
                 name_x = c_rect.left - 140
                 name_y = c_rect.top - (name_surf.get_height() + 6)
                 screen.blit(name_surf, (name_x, name_y))

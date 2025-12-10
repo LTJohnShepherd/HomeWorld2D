@@ -13,7 +13,7 @@ class BPInterceptor(Blueprint):
             stack_size=9999,
             quantity=float("inf"),
             rarity="COMMON",
-            title="INTERCEPTOR SQUADRON",
+            title="INTERCEPTOR\nSQUADRON",
             description=(
                 "The Interceptor is a fast, maneuverable "
                 "and versatile craft designed for patrol "

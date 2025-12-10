@@ -1,9 +1,12 @@
 import sys
 import pygame
 from spacegame.ui.fleet_management_ui import draw_tier_icon
-from spacegame.ui.ui import preview_for_unit, OREM_PREVIEW_IMG
+from spacegame.ui.ui import preview_for_unit, OREM_PREVIEW_IMG, scaled_preview_for_unit
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.resources.orem import RUOreM
+from spacegame.models.resources.orea import RUOreA
+from spacegame.models.resources.oreb import RUOreB
+from spacegame.models.resources.orec import RUOreC
 from spacegame.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -12,13 +15,12 @@ from spacegame.config import (
     UI_ICON_BLUE,
     UI_SECTION_TEXT_COLOR,
     UI_TOP_BAR_HEIGHT,
-    UI_TAB_UNDERLINE_COLOR,
-    UI_TAB_TEXT_SELECTED,
     UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR,
 )
 from spacegame.config import PREVIEWS_DIR
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
 
 
 def inventory_screen(main_player, player_fleet):
@@ -37,7 +39,7 @@ def inventory_screen(main_player, player_fleet):
     tab_font = pygame.font.Font(None, 28)
     section_font = pygame.font.Font(None, 32)
     close_font = pygame.font.Font(None, 40)
-    name_font = pygame.font.Font(None, 28)
+    name_font = pygame.font.Font(None, 26)
     dmg_font = pygame.font.Font(None, 22)
     capacity_font = pygame.font.Font(None, 24)
 
@@ -68,32 +70,8 @@ def inventory_screen(main_player, player_fleet):
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
     selected_tab = 0  # INVENTORY selected
-    tab_spacing = 16
 
-    tab_entries = []
-    total_tabs_width = -tab_spacing
-    # Measure and compute widths (icon + text + padding)
-    icon_size = 24
-    ICON_MARGIN = 10
-    H_PADDING = 24
-
-    for label in tab_labels:
-        text_surf = tab_font.render(label, True, UI_TAB_TEXT_COLOR)
-        text_width = text_surf.get_width()
-        tab_width = icon_size + ICON_MARGIN + text_width + H_PADDING * 2
-        tab_entries.append({"label": label, "text_surf": text_surf, "width": tab_width})
-        total_tabs_width += tab_width + tab_spacing
-
-    # Move tabs slightly lower so they are not too close to the title text
-    tabs_y = TOP_BAR_HEIGHT - UI_TAB_HEIGHT - 4
-    tabs_left = width // 2 - total_tabs_width // 2
-
-    # Create rects for tabs
-    x = tabs_left
-    for entry in tab_entries:
-        rect = pygame.Rect(x, tabs_y, entry["width"], UI_TAB_HEIGHT)
-        entry["rect"] = rect
-        x += entry["width"] + tab_spacing
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
 
     # ---- layout helpers for the cards ----
     BOX_W = 260
@@ -123,22 +101,39 @@ def inventory_screen(main_player, player_fleet):
     SCROLL_SMOOTH = 0.25    # 0..1, higher = snappier
 
     while running:
-        # recompute alive/selected/stored every frame from the Hangar system
-        hangar = getattr(main_player, "hangar_system", None)
-        if hangar is None:
-            return
+        # Recompute alive/selected/stored every frame from the InventoryManager-backed Hangar
+        inv_mgr = getattr(main_player, 'inventory_manager', None)
+        if inv_mgr is None or getattr(inv_mgr, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        hangar = inv_mgr.hangar
 
         alive_entries = hangar.alive_pool_entries()
         selected_ids = hangar.selected_interceptor_ids()
 
+        # Sort stored items by unit_type (ship type) so inventory cards are grouped
+        # by type instead of their numeric pool id.
         stored_items = [e for e in alive_entries if e.id not in selected_ids]
+        stored_items = sorted(stored_items, key=lambda e: (getattr(e, 'unit_type', '') or ''))
         # Build resources list from main_player inventory if present
         resources_items = []
-        inv = getattr(main_player, 'inventory', {}) or {}
+        inv_mgr = getattr(main_player, 'inventory_manager', None)
         # RU TYPE M mapped to letter 'M'
-        m_qty = int(inv.get('M', 0))
+        m_qty = int(inv_mgr.get_amount('M')) if inv_mgr is not None else 0
         if m_qty > 0:
             resources_items.append(RUOreM(quantity=m_qty))
+
+        # RU TYPE A/B/C mapped to letters 'A','B','C'
+        a_qty = int(inv_mgr.get_amount('A')) if inv_mgr is not None else 0
+        if a_qty > 0:
+            resources_items.append(RUOreA(quantity=a_qty))
+
+        b_qty = int(inv_mgr.get_amount('B')) if inv_mgr is not None else 0
+        if b_qty > 0:
+            resources_items.append(RUOreB(quantity=b_qty))
+
+        c_qty = int(inv_mgr.get_amount('C')) if inv_mgr is not None else 0
+        if c_qty > 0:
+            resources_items.append(RUOreC(quantity=c_qty))
 
         # ---------- EVENTS ----------
         for event in pygame.event.get():
@@ -183,16 +178,10 @@ def inventory_screen(main_player, player_fleet):
                             selected_tab = idx
                         break
 
-            # Mouse wheel support (pygame 2) and legacy wheel buttons
+            # Mouse wheel support (pygame 2)
             if event.type == pygame.MOUSEWHEEL:
                 # event.y: 1 for wheel up, -1 for wheel down
                 offset_y_raw += event.y * SCROLL_STEP
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button in (4, 5):
-                # legacy mouse wheel: 4=up, 5=down
-                if event.button == 4:   # wheel up
-                    offset_y_raw += SCROLL_STEP
-                else:                   # wheel down
-                    offset_y_raw -= SCROLL_STEP
 
         # ---------- STATIC LAYOUT (NO OFFSET HERE) ----------
         ships_title_y = UI_TOP_BAR_HEIGHT + 30
@@ -295,45 +284,8 @@ def inventory_screen(main_player, player_fleet):
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
 
-        # Tabs (transparent background: only icon, text, highlight on nav lines)
-        for idx, entry in enumerate(tab_entries):
-            rect = entry["rect"]
-            is_selected = idx == selected_tab
-
-            icon_rect = pygame.Rect(0, 0, icon_size, icon_size)
-            icon_rect.centery = rect.centery
-            icon_rect.left = rect.left + H_PADDING
-            pygame.draw.rect(
-                screen,
-                (210, 220, 235) if is_selected else (170, 190, 210),
-                icon_rect,
-                border_radius=4,
-                width=2,
-            )
-
-            text_color = UI_TAB_TEXT_SELECTED if is_selected else UI_TAB_TEXT_COLOR
-            label_surf = tab_font.render(entry["label"], True, text_color)
-            label_rect = label_surf.get_rect()
-            label_rect.centery = rect.centery
-            label_rect.left = icon_rect.right + ICON_MARGIN
-            screen.blit(label_surf, label_rect)
-
-            if is_selected:
-                # highlight segments exactly on the top/bottom nav lines
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_top_y),
-                    (rect.right - 6, nav_top_y),
-                    2,
-                )
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_bottom_y),
-                    (rect.right - 6, nav_bottom_y),
-                    2,
-                )
+        # Tabs (draw using shared nav helper)
+        nav_top_y, nav_bottom_y = draw_tabs(screen, tab_entries, selected_tab, tabs_y, width, tab_font)
 
         # ---- SCROLLABLE AREA CLIP (cards + section titles go under the UI) ----
         scroll_clip_rect = pygame.Rect(0, scroll_area_top, width, height - scroll_area_top)
@@ -359,24 +311,69 @@ def inventory_screen(main_player, player_fleet):
             preview_x = draw_rect.x + 40
             preview_y = draw_rect.y + draw_rect.height // 2
 
-            # preview image (pick by unit_type)
-            preview_img = preview_for_unit(getattr(entry, "unit_type"))
-            img = pygame.transform.smoothscale(preview_img, (48, 48))
+            # preview image (pick by unit_type) — use cached scaled preview
+            img = scaled_preview_for_unit(getattr(entry, "unit_type"), (48, 48))
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
-            name_surf = name_font.render(entry.name, True, (230, 230, 255))
-            screen.blit(name_surf, (preview_x + 50, draw_rect.y + 12))
+            from spacegame.ui.ui import draw_multiline_text, draw_power_icon
+            draw_multiline_text(screen, entry.name, name_font, (230, 230, 255), (preview_x + 50, draw_rect.y + 12))
 
-            # show damage (resource collectors have 0 damage)
-            if getattr(entry, "unit_type") == "resource_collector":
-                dmg = 0
-            elif getattr(entry, "unit_type") == "interceptor":
-                dmg = Interceptor.DEFAULT_BULLET_DAMAGE
+            # Cached power computation per-entry to avoid repeated instantiation
+            if not hasattr(inventory_screen, '_power_cache'):
+                inventory_screen._power_cache = {}
+            cache_key = (getattr(entry, 'id', None), getattr(entry, 'tier', None))
+            power_cache = inventory_screen._power_cache
+            if cache_key in power_cache:
+                power_val = power_cache[cache_key]
             else:
-                dmg = 0
-            dmg_text = dmg_font.render(f"Damage: {int(dmg)}", True, (200, 200, 220))
-            screen.blit(dmg_text, (preview_x + 50, draw_rect.y + 44))
+                try:
+                    ut = getattr(entry, 'unit_type', '')
+                    tier = int(getattr(entry, 'tier', 0) or 0)
+                    if ut == 'interceptor':
+                        unit = Interceptor((0, 0), interceptor_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'resource_collector':
+                        from spacegame.models.units.resource_collector import ResourceCollector
+                        unit = ResourceCollector((0, 0), collector_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'plasma_bomber':
+                        from spacegame.models.units.plasma_bomber import PlasmaBomber
+                        unit = PlasmaBomber((0, 0), bomber_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'frigate':
+                        from spacegame.models.units.frigate import Frigate
+                        unit = Frigate((0, 0), tier=tier)
+                    else:
+                        unit = None
+                except Exception:
+                    unit = None
+
+                if unit is None:
+                    power_val = 0
+                else:
+                    bullet = float(getattr(unit, 'bullet_damage', 0.0))
+                    armor = float(getattr(unit, 'armor_damage', 0.0))
+                    health = float(getattr(unit, 'max_health', getattr(unit, 'health', 0.0)))
+                    mover = getattr(unit, 'mover', None)
+                    speed = float(getattr(mover, 'speed', getattr(unit, 'speed', 0.0))) if mover is not None else float(getattr(unit, 'speed', 0.0))
+                    try:
+                        power = (bullet + armor + speed + (health / 10.0)) / 4.0
+                    except Exception:
+                        power = 0.0
+                    power_val = int(round(power))
+                power_cache[cache_key] = power_val
+
+            # draw small icon and numeric power slightly lower
+            icon_size = 12
+            icon_x = preview_x + 50
+            icon_y = draw_rect.y + 56
+            draw_power_icon(screen, (icon_x, icon_y), size=icon_size, color=(200, 200, 220))
+            try:
+                power_label = dmg_font.render(str(int(power_val)), True, (220, 220, 255))
+                icon_h = int(round(icon_size * 1.2))
+                label_y = icon_y + (icon_h // 2) - (power_label.get_height() // 2)
+                label_x = icon_x + icon_size + 8
+                screen.blit(power_label, (label_x, label_y))
+            except Exception:
+                pass
 
         # Draw placeholder cards for incomplete rows in ships section
         num_items = len(stored_items)
@@ -417,9 +414,19 @@ def inventory_screen(main_player, player_fleet):
             pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
             draw_tier_icon(screen, draw_rect, getattr(ore, "tier", 0))
 
-            # Preview image
-            preview_img = OREM_PREVIEW_IMG
-            img = pygame.transform.smoothscale(preview_img, (48, 48))
+            # Preview image: prefer ore-specific preview file if available
+            try:
+                preview_fn = getattr(ore, 'preview_filename', None)
+                if preview_fn:
+                    try:
+                        loaded = pygame.image.load(PREVIEWS_DIR + "/" + preview_fn).convert_alpha()
+                        img = pygame.transform.smoothscale(loaded, (48, 48))
+                    except Exception:
+                        img = pygame.transform.smoothscale(OREM_PREVIEW_IMG, (48, 48))
+                else:
+                    img = pygame.transform.smoothscale(OREM_PREVIEW_IMG, (48, 48))
+            except Exception:
+                img = pygame.transform.smoothscale(OREM_PREVIEW_IMG, (48, 48))
             img_rect = img.get_rect(
                 center=(draw_rect.x + 40, draw_rect.y + draw_rect.height // 2)
             )

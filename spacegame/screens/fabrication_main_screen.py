@@ -9,15 +9,20 @@ from spacegame.config import (
     UI_TITLE_COLOR,
     UI_TAB_UNDERLINE_COLOR,
     UI_TAB_TEXT_SELECTED,
-    UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR
     )
 
-from spacegame.models.modules.fabricatormodule import (
-    FabricatorModule,
-    get_fabricator_modules_for_ship,
+from spacegame.models.modules.fabricatormodule import FabricatorModule
+from spacegame.core.fabrication import get_fabrication_manager
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.fabrication_ui import (
+    generate_slot_rects,
+    draw_index_square,
+    draw_slot_progress,
 )
+from spacegame.ui.fabrication_ui import make_card_rect, compute_idx_rect_base
+from spacegame.ui.ui import draw_plus_circle, draw_corner_frame
 
 
 def fabrication_main_screen(main_player, player_fleet):
@@ -56,38 +61,13 @@ def fabrication_main_screen(main_player, player_fleet):
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
     selected_tab = 2  # FABRICATION selected
-    tab_spacing = 16
 
-    tab_entries = []
-    total_tabs_width = -tab_spacing
-    # Measure and compute widths (icon + text + padding)
-    icon_size = 24
-    ICON_MARGIN = 10
-    H_PADDING = 24
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
 
-    for label in tab_labels:
-        text_surf = tab_font.render(label, True, UI_TAB_TEXT_COLOR)
-        text_width = text_surf.get_width()
-        tab_width = icon_size + ICON_MARGIN + text_width + H_PADDING * 2
-        tab_entries.append({"label": label, "text_surf": text_surf, "width": tab_width})
-        total_tabs_width += tab_width + tab_spacing
-
-    # Move tabs slightly lower so they are not too close to the title text
-    tabs_y = TOP_BAR_HEIGHT - UI_TAB_HEIGHT - 4
-    tabs_left = width // 2 - total_tabs_width // 2
-
-    # Create rects for tabs
-    x = tabs_left
-    for entry in tab_entries:
-        rect = pygame.Rect(x, tabs_y, entry["width"], UI_TAB_HEIGHT)
-        entry["rect"] = rect
-        x += entry["width"] + tab_spacing
-        # ---------- FABRICATOR MODULE SLOTS (01 / 02 / ...) ----------
-    fabricator_modules = get_fabricator_modules_for_ship()
-    if not fabricator_modules:
-        fabricator_modules = [FabricatorModule()]
-
-    selected_fabricator_index = 0  # which fabricator slot is currently selected
+    # ---------- FABRICATOR MODULE SLOTS (01 / 02 / ...) ----------
+    manager = get_fabrication_manager(main_player)
+    fabricator_modules = manager.get_modules()
+    selected_fabricator_index = manager.get_selected_index()  # persist selection
 
     # Geometry for the left card and index column (01 / 02 / ...)
     nav_top_y = tabs_y - 6
@@ -95,23 +75,13 @@ def fabrication_main_screen(main_player, player_fleet):
     content_top = nav_bottom_y + 24
 
     LEFT_SHIFT = 20
-    card_x = 40 - LEFT_SHIFT
-    card_y = content_top
-    card_w = int(width * 0.38)
-    card_h = int(height * 0.64)
-    card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+    card_rect = make_card_rect(width, height, content_top, left_shift=LEFT_SHIFT)
 
     idx_size = 96
-    idx_rect_base = pygame.Rect(card_rect.left + 16, card_rect.top + 16, idx_size, idx_size)
+    idx_rect_base = compute_idx_rect_base(card_rect, idx_size=idx_size)
     IDX_V_SPACING = idx_size + 24
-
     # one rect per equipped fabricator: 01 stays as-is, 02/03/... stacked below it
-    idx_rects: list[pygame.Rect] = [
-        pygame.Rect(idx_rect_base.left, idx_rect_base.top + i * IDX_V_SPACING, idx_size, idx_size)
-        for i in range(len(fabricator_modules))
-    ]
-    if not idx_rects:
-        idx_rects.append(idx_rect_base)
+    idx_rects: list[pygame.Rect] = generate_slot_rects(idx_rect_base, len(fabricator_modules), IDX_V_SPACING)
 
     # ----- BIG CENTER RECT (AROUND THE PLUS-CIRCLE) -----
     plus_radius = 120
@@ -173,6 +143,7 @@ def fabrication_main_screen(main_player, player_fleet):
                 for i, rect in enumerate(idx_rects):
                     if rect.collidepoint(mx, my):
                         selected_fabricator_index = i
+                        manager.set_selected_index(i)
                         break
 
 
@@ -184,6 +155,7 @@ def fabrication_main_screen(main_player, player_fleet):
                         return "to_game"
                     elif isinstance(res, int):
                         selected_fabricator_index = res
+                        manager.set_selected_index(res)
 
         # ---------- DRAW ----------
         screen.fill(UI_BG_COLOR)
@@ -220,99 +192,36 @@ def fabrication_main_screen(main_player, player_fleet):
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
 
-        # Tabs (transparent background: only icon, text, highlight on nav lines)
-        for idx, entry in enumerate(tab_entries):
-            rect = entry["rect"]
-            is_selected = idx == selected_tab
-
-            icon_rect = pygame.Rect(0, 0, icon_size, icon_size)
-            icon_rect.centery = rect.centery
-            icon_rect.left = rect.left + H_PADDING
-            pygame.draw.rect(
-                screen,
-                (210, 220, 235) if is_selected else (170, 190, 210),
-                icon_rect,
-                border_radius=4,
-                width=2,
-            )
-
-            text_color = UI_TAB_TEXT_SELECTED if is_selected else UI_TAB_TEXT_COLOR
-            label_surf = tab_font.render(entry["label"], True, text_color)
-            label_rect = label_surf.get_rect()
-            label_rect.centery = rect.centery
-            label_rect.left = icon_rect.right + ICON_MARGIN
-            screen.blit(label_surf, label_rect)
-
-            if is_selected:
-                # highlight segments exactly on the top/bottom nav lines
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_top_y),
-                    (rect.right - 6, nav_top_y),
-                    2,
-                )
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_bottom_y),
-                    (rect.right - 6, nav_bottom_y),
-                    2,
-                )
+        # Tabs (draw using shared nav helper)
+        nav_top_y, nav_bottom_y = draw_tabs(screen, tab_entries, selected_tab, tabs_y, width, tab_font)
 
         # ---------- MAIN CONTENT (fabrication visual) ----------
         content_top = nav_bottom_y + 24  # same as used when we built card_rect
 
         # Left detail: index squares (01, 02, ...) with corner-only decoration + progress bar,
         # and transparent details to the right (no border/background).
-        def draw_index_square(rect: pygame.Rect, label: str, selected: bool) -> None:
-            # selected -> orange corners (like internal modules), others -> white
-            corner_color = UI_TAB_UNDERLINE_COLOR if selected else UI_TAB_TEXT_SELECTED
-            corner_len = 18
-            corner_thick = 3
-
-            # corner-only frame (same pattern as original 01)
-            # top-left
-            pygame.draw.line(screen, corner_color, (rect.left, rect.top), (rect.left + corner_len, rect.top), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.left, rect.top), (rect.left, rect.top + corner_len), corner_thick)
-            # top-right
-            pygame.draw.line(screen, corner_color, (rect.right - corner_len, rect.top), (rect.right, rect.top), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.right, rect.top), (rect.right, rect.top + corner_len), corner_thick)
-            # bottom-left
-            pygame.draw.line(screen, corner_color, (rect.left, rect.bottom - corner_len), (rect.left, rect.bottom), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.left, rect.bottom), (rect.left + corner_len, rect.bottom), corner_thick)
-             # bottom-right
-            pygame.draw.line(screen, corner_color, (rect.right - corner_len, rect.bottom), (rect.right, rect.bottom), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.right, rect.bottom - corner_len), (rect.right, rect.bottom), corner_thick)
-
-            # index text (01 / 02 / ...)
-            index_font = pygame.font.Font(None, 36)
-            idx_text = index_font.render(label, True, corner_color)
-            it_rect = idx_text.get_rect(center=rect.center)
-            screen.blit(idx_text, it_rect)
 
         # draw all fabricator slots (01 / 02 / ...)
         for i, rect in enumerate(idx_rects, start=1):
-            draw_index_square(rect, f"{i:02d}", selected=(i - 1) == selected_fabricator_index)
+            draw_index_square(
+                screen,
+                rect,
+                f"{i:02d}",
+                (i - 1) == selected_fabricator_index,
+                UI_TAB_UNDERLINE_COLOR,
+                UI_TAB_TEXT_SELECTED,
+            )
 
         # progress bar inside ALL slot squares (selected or not)
         fabrication_progress = 0.0  # 0 = idle, >0 once fabrication has started
         pb_margin = 12
         PROGRESS_COLOR = (255, 160, 40)  # same orange as nav X
 
-        for rect in idx_rects:
-            pb_rect = pygame.Rect(
-                rect.left + pb_margin,
-                rect.bottom - 22,
-                rect.width - pb_margin * 2,
-                12,
-            )
-            pygame.draw.rect(screen, (40, 50, 70), pb_rect)
-
-            if fabrication_progress > 0.0:
-                inner_w = max(2, int(pb_rect.width * fabrication_progress))
-                inner_rect = pygame.Rect(pb_rect.left, pb_rect.top, inner_w, pb_rect.height)
-                pygame.draw.rect(screen, PROGRESS_COLOR, inner_rect)
+        for i, rect in enumerate(idx_rects):
+            # Always draw slot progress background; manager progress controls fill.
+            status = manager.get_status(i)
+            fabrication_progress = float(status.get("progress", 0.0))
+            draw_slot_progress(screen, rect, fabrication_progress, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
 
 
 
@@ -393,11 +302,7 @@ def fabrication_main_screen(main_player, player_fleet):
         ocx = officer_box_rect.left + 42
         ocy = officer_box_rect.centery
         inner_radius = int(officer_box_h / 2.8)
-        pygame.draw.circle(screen, UI_TITLE_COLOR, (ocx, ocy), inner_radius, 2)
-
-        plus_size = 14
-        pygame.draw.line(screen, UI_TITLE_COLOR, (ocx - plus_size, ocy), (ocx + plus_size, ocy), 2)
-        pygame.draw.line(screen, UI_TITLE_COLOR, (ocx, ocy - plus_size), (ocx, ocy + plus_size), 2)
+        draw_plus_circle(screen, (ocx, ocy), inner_radius, UI_TITLE_COLOR, plus_size=14, circle_thickness=2, plus_thickness=2)
 
         # Two-line label inside the same square (centered vertically, left-aligned next to plus)
         line1 = stat_label_font.render("ASSIGN", True, UI_SECTION_TEXT_COLOR)
@@ -411,28 +316,13 @@ def fabrication_main_screen(main_player, player_fleet):
         # Center big plus-circle (production slot) — centralized to middle of screen
         plus_radius = 120
         preview_center = (width // 2, height // 2)
-        pygame.draw.circle(screen, (200, 220, 235), preview_center, plus_radius, 3)
-        # small plus inside
-        px, py = preview_center
-        pygame.draw.line(screen, (200, 220, 235), (px - 36, py), (px + 36, py), 4)
-        pygame.draw.line(screen, (200, 220, 235), (px, py - 36), (px, py + 36), 4)
+        draw_plus_circle(screen, preview_center, plus_radius, (200, 220, 235), plus_size=36, circle_thickness=3, plus_thickness=4)
 
         # Corner-only rect around big circle (like the 01 square corners)
         big_corner_len = 28
         big_corner_thick = 4
         corner_color = UI_TAB_TEXT_SELECTED
-        # top-left
-        pygame.draw.line(screen, corner_color, (big_rect.left, big_rect.top), (big_rect.left + big_corner_len, big_rect.top), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.left, big_rect.top), (big_rect.left, big_rect.top + big_corner_len), big_corner_thick)
-        # top-right
-        pygame.draw.line(screen, corner_color, (big_rect.right - big_corner_len, big_rect.top), (big_rect.right, big_rect.top), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.right, big_rect.top), (big_rect.right, big_rect.top + big_corner_len), big_corner_thick)
-        # bottom-left
-        pygame.draw.line(screen, corner_color, (big_rect.left, big_rect.bottom - big_corner_len), (big_rect.left, big_rect.bottom), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.left, big_rect.bottom), (big_rect.left + big_corner_len, big_rect.bottom), big_corner_thick)
-        # bottom-right
-        pygame.draw.line(screen, corner_color, (big_rect.right - big_corner_len, big_rect.bottom), (big_rect.right, big_rect.bottom), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.right, big_rect.bottom - big_corner_len), (big_rect.right, big_rect.bottom), big_corner_thick)
+        draw_corner_frame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick)
 
         # Bottom green button (centered)
         btn_w = 380

@@ -36,3 +36,13 @@ class Interceptor(SpaceUnit):
         # recall state
         self.recalling = False
         self.hangar_slot = None
+
+        # Combat stats
+        self.bullet_damage = 34.0
+        self.armor_damage = 2.67
+
+        # Health/armor
+        self.max_health = 3990.0
+        self.health = self.max_health
+        self.max_armor = 0.0
+        self.armor = 0.0

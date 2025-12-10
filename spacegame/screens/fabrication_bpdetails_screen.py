@@ -1,25 +1,29 @@
 import sys
 import pygame
 from spacegame.config import (
-    SCREEN_WIDTH, 
-    SCREEN_HEIGHT, 
-    UI_BG_COLOR, 
-    UI_TAB_HEIGHT, 
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    UI_BG_COLOR,
+    UI_TAB_HEIGHT,
     UI_SECTION_TEXT_COLOR,
     UI_TITLE_COLOR,
     UI_TAB_UNDERLINE_COLOR,
     UI_TAB_TEXT_SELECTED,
-    UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR,
     UI_ICON_BLUE,
-    PREVIEWS_DIR
-    )
-from spacegame.models.modules.fabricatormodule import (
-    FabricatorModule,
-    get_fabricator_modules_for_ship,
+    PREVIEWS_DIR,
 )
-from spacegame.models.resources.orem import RUOreM
+from spacegame.core.fabrication import get_fabrication_manager
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.fabrication_ui import (
+    generate_slot_rects,
+    draw_index_square,
+    draw_slot_progress,
+    make_card_rect,
+    compute_idx_rect_base,
+)
+from spacegame.ui.ui import draw_plus_circle, draw_corner_frame, OREM_PREVIEW_IMG, preview_for_unit
 from spacegame.ui.fleet_management_ui import draw_tier_icon
                       
 
@@ -34,7 +38,7 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
     # ---------- FONTS ----------
     title_font = pygame.font.Font(None, 40)
     tab_font = pygame.font.Font(None, 28)
-    section_font = pygame.font.Font(None, 28)
+    # section_font removed: not used in this screen (other fonts created where needed)
     close_font = pygame.font.Font(None, 40)
     name_font = pygame.font.Font(None, 26)   # blueprint & REQUIREMENTS
     desc_font = pygame.font.Font(None, 20)   # data
@@ -64,38 +68,13 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
     selected_tab = 2  # FABRICATION selected
-    tab_spacing = 16
 
-    tab_entries = []
-    total_tabs_width = -tab_spacing
-    # Measure and compute widths (icon + text + padding)
-    icon_size = 24
-    ICON_MARGIN = 10
-    H_PADDING = 24
-
-    for label in tab_labels:
-        text_surf = tab_font.render(label, True, UI_TAB_TEXT_COLOR)
-        text_width = text_surf.get_width()
-        tab_width = icon_size + ICON_MARGIN + text_width + H_PADDING * 2
-        tab_entries.append({"label": label, "text_surf": text_surf, "width": tab_width})
-        total_tabs_width += tab_width + tab_spacing
-
-    # Move tabs slightly lower so they are not too close to the title text
-    tabs_y = TOP_BAR_HEIGHT - UI_TAB_HEIGHT - 4
-    tabs_left = width // 2 - total_tabs_width // 2
-
-    # Create rects for tabs
-    x = tabs_left
-    for entry in tab_entries:
-        rect = pygame.Rect(x, tabs_y, entry["width"], UI_TAB_HEIGHT)
-        entry["rect"] = rect
-        x += entry["width"] + tab_spacing
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
     # ---------- FABRICATOR MODULE SLOTS (01 / 02 / ...) ----------
-    fabricator_modules = get_fabricator_modules_for_ship()
-    if not fabricator_modules:
-        fabricator_modules = [FabricatorModule()]
+    manager = get_fabrication_manager(main_player)
+    fabricator_modules = manager.get_modules()
 
-    selected_fabricator_index = 0  # which fabricator slot is currently selected
+    selected_fabricator_index = manager.get_selected_index()  # which fabricator slot is currently selected
 
     # Geometry for the left card and index column (01 / 02 / ...)
     nav_top_y = tabs_y - 6
@@ -103,23 +82,13 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
     content_top = nav_bottom_y + 24
 
     LEFT_SHIFT = 20
-    card_x = 40 - LEFT_SHIFT
-    card_y = content_top
-    card_w = int(width * 0.38)
-    card_h = int(height * 0.64)
-    card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+    card_rect = make_card_rect(width, height, content_top, left_shift=LEFT_SHIFT)
 
     idx_size = 96
-    idx_rect_base = pygame.Rect(card_rect.left + 16, card_rect.top + 16, idx_size, idx_size)
+    idx_rect_base = compute_idx_rect_base(card_rect, idx_size=idx_size)
     IDX_V_SPACING = idx_size + 24
-
     # one rect per equipped fabricator: 01 stays as-is, 02/03/... stacked below it
-    idx_rects: list[pygame.Rect] = [
-        pygame.Rect(idx_rect_base.left, idx_rect_base.top + i * IDX_V_SPACING, idx_size, idx_size)
-        for i in range(len(fabricator_modules))
-    ]
-    if not idx_rects:
-        idx_rects.append(idx_rect_base)
+    idx_rects: list[pygame.Rect] = generate_slot_rects(idx_rect_base, len(fabricator_modules), IDX_V_SPACING)
 
     # ----- BIG CENTER RECT -----
     plus_radius = 120
@@ -161,9 +130,8 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
 
     ore_preview_img = None
     try:
-        ore_preview_img = pygame.image.load(
-            PREVIEWS_DIR + "/" + RUOreM().preview_filename
-        ).convert_alpha()
+        ore_preview_img = OREM_PREVIEW_IMG
+        
     except Exception:
         pass
 
@@ -213,46 +181,36 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
                 for i, rect in enumerate(idx_rects):
                     if rect.collidepoint(mx, my):
                         selected_fabricator_index = i
+                        manager.set_selected_index(i)
                         break
 
-                                # ----- BUILD / SPEED UP / CANCEL -----
-                fab_module = fabricator_modules[selected_fabricator_index]
+                # ----- BUILD / SPEED UP / CANCEL -----
+                fab_module = manager.get_module(selected_fabricator_index)
 
                 ore_letter = getattr(bp, "required_ore_letter")
                 ore_amount = int(getattr(bp, "required_ore_amount"))
-                player_inventory = getattr(main_player, "inventory", {})
-                available_ore = int(player_inventory.get(ore_letter, 0))
+                inv_mgr = getattr(main_player, 'inventory_manager', None)
+                available_ore = int(inv_mgr.get_amount(ore_letter)) if inv_mgr is not None else 0
                 insufficient_resources = available_ore < ore_amount
 
-                total_ms = int(getattr(fab_module, "fabrication_total_ms", 0))
-                start_ticks = int(getattr(fab_module, "fabrication_start_ticks", 0))
-                is_fabricating = (total_ms > 0 and start_ticks > 0)
+                status = manager.get_status(selected_fabricator_index)
+                total_ms = int(status.get("total_ms", 0))
+                start_ticks = int(status.get("start_ticks", 0))
+                is_fabricating = bool(status.get("is_fabricating", False))
 
                 # CANCEL (bottom red button while fabricating)
                 if is_fabricating and build_btn_rect.collidepoint(mx, my):
-                    fab_module.fabrication_total_ms = 0
-                    fab_module.fabrication_start_ticks = 0
-                    fab_module.fabrication_progress = 0.0
-                    fab_module.fabrication_blueprint = None
+                    manager.cancel_fabrication(selected_fabricator_index)
                     continue
 
                 # SPEED UP (grey button)
                 if is_fabricating and speed_btn_rect.collidepoint(mx, my):
-                    # finish instantly for now
-                    fab_module.fabrication_start_ticks = pygame.time.get_ticks() - total_ms
+                    manager.speed_up(selected_fabricator_index)
                     continue
 
                 # BUILD (start fabrication)
                 if (not is_fabricating) and (not insufficient_resources) and build_btn_rect.collidepoint(mx, my):
-                    base_time_s = int(getattr(bp, "base_fabrication_time", 0))
-                    total_ms = max(1, base_time_s * 1000)
-                    fab_module.fabrication_total_ms = total_ms
-                    fab_module.fabrication_start_ticks = pygame.time.get_ticks()
-                    fab_module.fabrication_blueprint = bp
-                    fab_module.fabrication_progress = 0.0
-
-                    # optional: consume ore
-                    player_inventory[ore_letter] = max(0, available_ore - ore_amount)
+                    manager.start_fabrication(selected_fabricator_index, bp, main_player)
                     continue
 
 
@@ -291,117 +249,63 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
 
-        # Tabs (transparent background: only icon, text, highlight on nav lines)
-        for idx, entry in enumerate(tab_entries):
-            rect = entry["rect"]
-            is_selected = idx == selected_tab
-
-            icon_rect = pygame.Rect(0, 0, icon_size, icon_size)
-            icon_rect.centery = rect.centery
-            icon_rect.left = rect.left + H_PADDING
-            pygame.draw.rect(
-                screen,
-                (210, 220, 235) if is_selected else (170, 190, 210),
-                icon_rect,
-                border_radius=4,
-                width=2,
-            )
-
-            text_color = UI_TAB_TEXT_SELECTED if is_selected else UI_TAB_TEXT_COLOR
-            label_surf = tab_font.render(entry["label"], True, text_color)
-            label_rect = label_surf.get_rect()
-            label_rect.centery = rect.centery
-            label_rect.left = icon_rect.right + ICON_MARGIN
-            screen.blit(label_surf, label_rect)
-
-            if is_selected:
-                # highlight segments exactly on the top/bottom nav lines
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_top_y),
-                    (rect.right - 6, nav_top_y),
-                    2,
-                )
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_bottom_y),
-                    (rect.right - 6, nav_bottom_y),
-                    2,
-                )
+        # Tabs (draw using shared nav helper)
+        nav_top_y, nav_bottom_y = draw_tabs(screen, tab_entries, selected_tab, tabs_y, width, tab_font)
 
         # ---------- MAIN CONTENT (fabrication visual) ----------
         content_top = nav_bottom_y + 24  # same as used in card_rect
 
-        # Left detail: index squares (01, 02, ...) with corner-only decoration + progress bar,
-        # and transparent details to the right (no border/background).
-        def draw_index_square(rect: pygame.Rect, label: str, selected: bool) -> None:
-            # selected -> orange corners (like internal modules), others -> white
-            corner_color = UI_TAB_UNDERLINE_COLOR if selected else UI_TAB_TEXT_SELECTED
-            corner_len = 18
-            corner_thick = 3
-
-            # corner-only frame (same pattern as original 01)
-            # top-left
-            pygame.draw.line(screen, corner_color, (rect.left, rect.top), (rect.left + corner_len, rect.top), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.left, rect.top), (rect.left, rect.top + corner_len), corner_thick)
-            # top-right
-            pygame.draw.line(screen, corner_color, (rect.right - corner_len, rect.top), (rect.right, rect.top), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.right, rect.top), (rect.right, rect.top + corner_len), corner_thick)
-            # bottom-left
-            pygame.draw.line(screen, corner_color, (rect.left, rect.bottom - corner_len), (rect.left, rect.bottom), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.left, rect.bottom), (rect.left + corner_len, rect.bottom), corner_thick)
-             # bottom-right
-            pygame.draw.line(screen, corner_color, (rect.right - corner_len, rect.bottom), (rect.right, rect.bottom), corner_thick)
-            pygame.draw.line(screen, corner_color, (rect.right, rect.bottom - corner_len), (rect.right, rect.bottom), corner_thick)
-
-            # index text (01 / 02 / ...)
-            index_font = pygame.font.Font(None, 36)
-            idx_text = index_font.render(label, True, corner_color)
-            it_rect = idx_text.get_rect(center=rect.center)
-            screen.blit(idx_text, it_rect)
+        # Left detail: index squares (01, 02, ...) with corner-only decoration + progress bar.
+        # (Uses shared `draw_index_square` from `spacegame.ui.fabrication_ui`.)
 
         # draw all fabricator slots (01 / 02 / ...)
         for i, rect in enumerate(idx_rects, start=1):
-            draw_index_square(rect, f"{i:02d}", selected=(i - 1) == selected_fabricator_index)
+            draw_index_square(
+                screen,
+                rect,
+                f"{i:02d}",
+                (i - 1) == selected_fabricator_index,
+                UI_TAB_UNDERLINE_COLOR,
+                UI_TAB_TEXT_SELECTED,
+            )
 
         # ----- shared fabrication timer/progress (per fabricator module) -----
         fab_module = fabricator_modules[selected_fabricator_index]
-        base_time_s = int(getattr(bp, "base_fabrication_time", 0))
-        total_ms = int(getattr(fab_module, "fabrication_total_ms", 0))
-        start_ticks = int(getattr(fab_module, "fabrication_start_ticks", 0))
-        now_ticks = pygame.time.get_ticks()
+        # Display true fabrication time as blueprint base time multiplied
+        # by the fabricator module's base_fabrication_time factor.
+        blueprint_time = float(getattr(bp, "base_fabrication_time", 0))
+        module_factor = float(getattr(fab_module, "base_fabrication_time", 1.0))
+        base_time_s = int(blueprint_time * module_factor)
 
-        if total_ms > 0 and start_ticks > 0:
-            elapsed = max(0, now_ticks - start_ticks)
-            fabrication_progress = min(1.0, elapsed / float(total_ms))
-            remaining_ms = max(0, total_ms - elapsed)
-            remaining_s = remaining_ms // 1000
+        # Use manager API to retrieve authoritative fabrication status for this slot
+        status = manager.get_status(selected_fabricator_index)
+        total_ms = int(status.get("total_ms", 0))
+        start_ticks = int(status.get("start_ticks", 0))
+        fabrication_progress = float(status.get("progress", 0.0))
+        # If the slot is not currently fabricating, prefer to display the
+        # computed blueprint time (blueprint * module factor) rather than
+        # any module-default value (which may be the module factor like 1).
+        if not bool(status.get("is_fabricating", False)):
+            remaining_s = int(base_time_s)
         else:
-            fabrication_progress = 0.0
-            remaining_s = base_time_s
+            remaining_s = int(status.get("remaining_s", base_time_s))
 
-        fab_module.fabrication_progress = fabrication_progress
-        fab_module.fabrication_remaining_s = remaining_s
+        # Keep module fields in sync for UI code
+        try:
+            fab_module.fabrication_progress = fabrication_progress
+            fab_module.fabrication_remaining_s = remaining_s
+        except Exception:
+            pass
 
         pb_margin = 12
         PROGRESS_COLOR = (255, 160, 40)  # same orange as nav X
 
 
-        for rect in idx_rects:
-            pb_rect = pygame.Rect(
-                rect.left + pb_margin,
-                rect.bottom - 22,
-                rect.width - pb_margin * 2,
-                12,
-            )
-            pygame.draw.rect(screen, (40, 50, 70), pb_rect)
-
-            if fabrication_progress > 0.0:
-                inner_w = max(2, int(pb_rect.width * fabrication_progress))
-                inner_rect = pygame.Rect(pb_rect.left, pb_rect.top, inner_w, pb_rect.height)
-                pygame.draw.rect(screen, PROGRESS_COLOR, inner_rect)
+        for i, rect in enumerate(idx_rects):
+            # Always draw the progress bar background; fill when manager reports progress.
+            status = manager.get_status(i)
+            progress = float(status.get("progress", 0.0))
+            draw_slot_progress(screen, rect, progress, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
 
 
 
@@ -542,11 +446,7 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         ocx = officer_box_rect.left + 42
         ocy = officer_box_rect.centery
         inner_radius = int(officer_box_h / 2.8)
-        pygame.draw.circle(screen, UI_TITLE_COLOR, (ocx, ocy), inner_radius, 2)
-
-        plus_size = 14
-        pygame.draw.line(screen, UI_TITLE_COLOR, (ocx - plus_size, ocy), (ocx + plus_size, ocy), 2)
-        pygame.draw.line(screen, UI_TITLE_COLOR, (ocx, ocy - plus_size), (ocx, ocy + plus_size), 2)
+        draw_plus_circle(screen, (ocx, ocy), inner_radius, UI_TITLE_COLOR, plus_size=14, circle_thickness=2, plus_thickness=2)
 
         # Two-line label inside the same square (centered vertically, left-aligned next to plus)
         line1 = stat_label_font.render("ASSIGN", True, UI_SECTION_TEXT_COLOR)
@@ -561,60 +461,81 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         big_corner_len = 28
         big_corner_thick = 4
         corner_color = UI_TAB_TEXT_SELECTED
-
         # MOVE THE BOTTOM CORNERS HIGHER
-        bottom_offset = 80  # ← how much upward to move them (adjust freely)
+        bottom_offset = 80  # how much upward to move them
         adjusted_bottom = big_rect.bottom - bottom_offset
+        draw_corner_frame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick, bottom_offset=bottom_offset)
 
-        # top-left
-        pygame.draw.line(screen, corner_color, (big_rect.left, big_rect.top), (big_rect.left + big_corner_len, big_rect.top), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.left, big_rect.top), (big_rect.left, big_rect.top + big_corner_len), big_corner_thick)
-        # top-right
-        pygame.draw.line(screen, corner_color, (big_rect.right - big_corner_len, big_rect.top), (big_rect.right, big_rect.top), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.right, big_rect.top), (big_rect.right, big_rect.top + big_corner_len), big_corner_thick)
-        # bottom-left (moved upward)
-        pygame.draw.line(screen, corner_color, (big_rect.left, adjusted_bottom - big_corner_len), (big_rect.left, adjusted_bottom), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.left, adjusted_bottom), (big_rect.left + big_corner_len, adjusted_bottom), big_corner_thick)
+        # --- preview in the center of the big rect ---
+        # Prefer the produced unit's preview image (from PREVIEW_IMAGE_MAP via preview_for_unit).
+        img = None
+        try:
+            unit_cls = getattr(bp, 'unit_class', None)
+            unit_type = None
+            if unit_cls is not None:
+                try:
+                    name = getattr(unit_cls, '__name__', '')
+                    if 'Interceptor' in name:
+                        unit_type = 'interceptor'
+                    elif 'Collector' in name or 'ResourceCollector' in name:
+                        unit_type = 'resource_collector'
+                    elif 'Frigate' in name:
+                        unit_type = 'frigate'
+                    elif 'Expedition' in name or 'ExpeditionShip' in name:
+                        unit_type = 'expedition'
+                    elif 'Bomber' in name or 'Plasma' in name:
+                        unit_type = 'plasma_bomber'
+                except Exception:
+                    unit_type = None
 
-        # bottom-right (moved upward)
-        pygame.draw.line(screen, corner_color, (big_rect.right - big_corner_len, adjusted_bottom), (big_rect.right, adjusted_bottom), big_corner_thick)
-        pygame.draw.line(screen, corner_color, (big_rect.right, adjusted_bottom - big_corner_len), (big_rect.right, adjusted_bottom), big_corner_thick)
+            if unit_type is not None:
+                try:
+                    img = preview_for_unit(unit_type)
+                except Exception:
+                    img = None
 
-        # --- blueprint preview in the center of the big rect ---
-        if bp is not None and hasattr(bp, "preview_filename"):
-            try:
-                img = pygame.image.load(PREVIEWS_DIR + "/" + bp.preview_filename).convert_alpha()
+            # Fallback to blueprint preview filename if unit preview not available
+            if img is None and bp is not None and hasattr(bp, 'preview_filename'):
+                try:
+                    img = pygame.image.load(PREVIEWS_DIR + "/" + bp.preview_filename).convert_alpha()
+                except Exception:
+                    img = None
 
+            # Final fallback to ore preview image (keeps previous behaviour)
+            if img is None:
+                try:
+                    img = OREM_PREVIEW_IMG
+                except Exception:
+                    img = None
+
+            if img is not None:
                 inner_margin = 40
                 avail_height = adjusted_bottom - big_rect.top
-                max_w = big_rect.width  - inner_margin * 2
-                max_h = avail_height    - inner_margin * 2
+                max_w = big_rect.width - inner_margin * 2
+                max_h = avail_height - inner_margin * 2
 
                 if max_w > 0 and max_h > 0:
-                    scale = min(
-                        max_w / img.get_width(),
-                        max_h / img.get_height(),
-                        1.0,
-                    )
-                    new_size = (
-                        int(img.get_width() * scale),
-                        int(img.get_height() * scale),
-                    )
-                    img = pygame.transform.smoothscale(img, new_size)
+                    try:
+                        scale = min(max_w / img.get_width(), max_h / img.get_height(), 1.0)
+                        new_size = (int(img.get_width() * scale), int(img.get_height() * scale))
+                        img = pygame.transform.smoothscale(img, new_size)
+                    except Exception:
+                        pass
 
                     center_x = big_rect.centerx
                     center_y = (big_rect.top + adjusted_bottom) // 2
                     img_rect = img.get_rect(center=(center_x, center_y))
                     screen.blit(img, img_rect.topleft)
-            except Exception:
-                pass
+        except Exception:
+            # If anything goes wrong, don't crash the screen; just skip preview
+            pass
 
                 # ---------- PRODUCTION DETAILS (RIGHT) ----------
         ore_letter = getattr(bp, "required_ore_letter")
         ore_amount = int(getattr(bp, "required_ore_amount"))
         ore_tier = int(getattr(bp, "required_ore_tier"))
-        player_inventory = getattr(main_player, "inventory")
-        available_ore = int(player_inventory.get(ore_letter, 0))
+        inv_mgr = getattr(main_player, 'inventory_manager', None)
+        available_ore = int(inv_mgr.get_amount(ore_letter)) if inv_mgr is not None else 0
         insufficient_resources = available_ore < ore_amount
 
         # header

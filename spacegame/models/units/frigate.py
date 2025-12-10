@@ -1,6 +1,6 @@
 import pygame
 from spacegame.models.units.fleet_unit import SpaceUnit
-from spacegame.config import IMAGES_DIR, FRIGATE_MAX_ARMOR
+from spacegame.config import IMAGES_DIR
 
 class Frigate(SpaceUnit):
     """Escort frigate for the ExpeditionShip."""
@@ -28,6 +28,12 @@ class Frigate(SpaceUnit):
         super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
         self.base_surf = scaled_sprite
 
-        # Frigate armor
-        self.max_armor = FRIGATE_MAX_ARMOR
+        # Combat stats
+        self.bullet_damage = 67.0
+        self.armor_damage = 10.7
+
+        # Health/armor
+        self.max_health = 4200.0
+        self.health = self.max_health
+        self.max_armor = 540.0
         self.armor = self.max_armor

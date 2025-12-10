@@ -7,8 +7,7 @@ from spacegame.config import (
     PIRATE_DEFAULT_FIRE_COOLDOWN,
     PIRATE_DEFAULT_BULLET_DAMAGE,
     PIRATE_DEFAULT_ARMOR_DAMAGE,
-    IMAGES_DIR,
-    PIRATE_MAX_ARMOR,
+    IMAGES_DIR
 )
 
 class PirateFrigate(SpaceUnit):
@@ -44,6 +43,12 @@ class PirateFrigate(SpaceUnit):
         super().__init__(start_pos, ship_size=scaled_sprite.get_size(), **kwargs)
         self.base_surf = scaled_sprite
 
-        # Pirate frigate armor
-        self.max_armor = PIRATE_MAX_ARMOR
+        # Combat stats
+        self.bullet_damage = 67.0
+        self.armor_damage = 10.7
+
+        # Health/armor
+        self.max_health = 4200.0
+        self.health = self.max_health
+        self.max_armor = 540.0
         self.armor = self.max_armor

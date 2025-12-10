@@ -1,11 +1,22 @@
+"""HUD helpers: small widget that draws the in-game HUD previews.
+
+`HudUI` prepares pre-scaled previews for quick drawing in the game loop
+and provides input handling for small deploy/recall buttons.
+"""
+
 import pygame
 from spacegame.models.units.frigate import Frigate
-from spacegame.models.units.resource_collector import ResourceCollector
 from spacegame.ui.ui import preview_for_unit, draw_triangle, draw_diamond, draw_dalton, draw_hex, draw_health_bar, draw_armor_bar
-from spacegame.config import (UI_TAB_TEXT_SELECTED)
+from spacegame.config import UI_TAB_TEXT_SELECTED
+
 
 class HudUI:
-    """Manages the Hud UI in Gamescreen."""
+    """Draws the bottom-row HUD previews and handles simple clicks.
+
+    This class caches scaled preview images to avoid expensive per-frame
+    smoothscale calls and exposes `handle_mouse_button_down` to let callers
+    react to HUD clicks.
+    """
 
     def __init__(self, font, preview_size=40):
         self.font = font
@@ -17,6 +28,9 @@ class HudUI:
         )
         self.resource_collector_preview_img = pygame.transform.smoothscale(
             preview_for_unit("resource_collector"), (preview_size, preview_size)
+        )
+        self.bomber_preview_img = pygame.transform.smoothscale(
+            preview_for_unit("plasma_bomber"), (preview_size, preview_size)
         )
 
         # --- Unified preview row layout ---
@@ -47,18 +61,26 @@ class HudUI:
         """Process a left mouse button click. Returns True if the click was consumed by the hangar UI."""
         clicked_ui = False
 
+        # InventoryManager-backed hangar is required
+        inv = getattr(main_player, 'inventory_manager', None)
+        if inv is None or getattr(inv, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        hangar = inv.hangar
+
         # Check deploy / recall buttons
         for i, hangar_slot in enumerate(self.hangar_slots):
             if hangar_slot['show_button'] and hangar_slot['button_rect'].collidepoint(mouse_pos):
-                if main_player.hangar[i]:
-                    # DEPLOY
-                    if main_player.can_deploy(i):
-                        new_fighter = main_player.deploy(i)
-                        if new_fighter:
-                            player_shapes.append(new_fighter)
+                # Deploy if slot currently has a craft in hangar
+                if hangar.slots[i]:
+                    # Use hangar.deploy (created on Hangar) to spawn the craft.
+                    new_fighter = None
+                    if hasattr(hangar, 'deploy'):
+                        new_fighter = hangar.deploy(i)
+                    if new_fighter:
+                        player_shapes.append(new_fighter)
                 else:
-                    # RECALL
-                    icpts = getattr(main_player, 'hangar_ships', [None, None, None])
+                    # RECALL: check deployed ships tracked by hangar
+                    icpts = getattr(hangar, 'ships', [None, None, None])
                     fighter_ship = icpts[i] if i < len(icpts) else None
                     if fighter_ship is not None and fighter_ship in player_shapes and fighter_ship.health > 0.0:
                         fighter_ship.recalling = True
@@ -109,7 +131,7 @@ class HudUI:
                 )
                 if preview_rect.collidepoint(mouse_pos):
                     # If the craft is deployed and alive, select it; otherwise toggle the deploy/recall button
-                    icpts = getattr(main_player, 'hangar_ships', [None, None, None])
+                    icpts = getattr(hangar, 'ships', [None, None, None])
                     fighter_ship = icpts[i] if i < len(icpts) else None
                     fighter_alive = (
                         fighter_ship is not None and
@@ -139,6 +161,11 @@ class HudUI:
         """Draw hangar previews, health bars, and active deploy/recall buttons."""
         preview_size = self.preview_size
         font = self.font
+        # Require InventoryManager.hangar
+        inv = getattr(main_player, 'inventory_manager', None)
+        if inv is None or getattr(inv, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        hangar = inv.hangar
         
         # --- Draw ExpeditionShip preview (sprite + hex overlay) ---
         ms_center = self.expeditionship_preview['preview_position']
@@ -225,7 +252,7 @@ class HudUI:
         # --- Draw hangar previews & deploy/recall buttons ---
         for i, hangar_slot in enumerate(self.hangar_slots):
             # figure out which light craft (if any) is linked to this slot
-            icpts = getattr(main_player, 'hangar_ships', [None, None, None])
+            icpts = getattr(hangar, 'ships', [None, None, None])
             fighter_ship = icpts[i] if i < len(icpts) else None
 
             # If this slot has neither a craft in hangar nor a live one deployed,
@@ -235,7 +262,7 @@ class HudUI:
                 fighter_ship in player_shapes and
                 fighter_ship.health > 0.0
             )
-            if not main_player.hangar[i] and not fighter_alive:
+            if not hangar.slots[i] and not fighter_alive:
                 hangar_slot['show_button'] = False
                 continue
 
@@ -245,21 +272,23 @@ class HudUI:
                 unit_type = getattr(fighter_ship, 'shape_id', lambda: "interceptor")()
             else:
                 # Check the pool entry for the assigned unit
-                entry_id = main_player.hangar_assignments[i] if i < len(main_player.hangar_assignments) else None
+                entry_id = hangar.assignments[i] if i < len(hangar.assignments) else None
                 if entry_id is not None:
-                    entry = main_player.hangar_system.get_entry_by_id(entry_id)
+                    entry = hangar.get_entry_by_id(entry_id)
                     if entry is not None:
                         unit_type = entry.unit_type
 
             # Select the appropriate preview image based on unit type
             if unit_type == "resource_collector":
                 craft_preview_img = self.resource_collector_preview_img.copy()
+            elif unit_type == "plasma_bomber":
+                craft_preview_img = self.bomber_preview_img.copy()
             else:
                 # default to interceptor
                 craft_preview_img = self.interceptor_preview_img.copy()
 
             # if it's still in hangar, darken the ship sprite itself (no dark box)
-            if main_player.hangar[i]:
+            if hangar.slots[i]:
                 dim = pygame.Surface(craft_preview_img.get_size(), pygame.SRCALPHA)
                 dim.fill((128, 128, 128, 255))  # < 255 => darker
                 craft_preview_img.blit(dim, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
@@ -319,7 +348,7 @@ class HudUI:
                 )
                 hangar_slot['button_rect'] = btn_rect
 
-                if main_player.hangar[i]:
+                if hangar.slots[i]:
                     # light craft still in hangar
                     btn_color = (40, 160, 40)
                     label = 'Deploy'

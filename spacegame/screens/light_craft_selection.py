@@ -1,3 +1,10 @@
+"""Screen for selecting / assigning light craft to hangar slots.
+
+This screen renders available light-craft from the player's Hangar and
+allows assigning them to a specific slot. It reads hangar state via the
+player's `InventoryManager.hangar`.
+"""
+
 import pygame
 import sys
 from spacegame.ui.fleet_management_ui import (
@@ -5,8 +12,9 @@ from spacegame.ui.fleet_management_ui import (
     draw_fleet_section_titles,
     compute_fleet_preview_layout,
 )
-from spacegame.ui.ui import preview_for_unit
+from spacegame.ui.ui import preview_for_unit, scaled_preview_for_unit
 from spacegame.models.units.interceptor import Interceptor
+from spacegame.models.units.plasma_bomber import PlasmaBomber
 from spacegame.models.units.frigate import Frigate
 from spacegame.config import (
     FPS,
@@ -19,6 +27,15 @@ from spacegame.config import (
 
 
 def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
+    """Display the light-craft list and allow assigning one to `slot_index`.
+
+    Parameters:
+    - main_player: the mothership instance (must have `inventory_manager.hangar`).
+    - player_fleet: list of current active ships (used for preview/selection).
+    - slot_index: index of the hangar slot to assign.
+
+    Returns None on cancel or `"to_game"` to indicate returning to gameplay.
+    """
     screen = pygame.display.get_surface()
     if screen is None:
         return
@@ -63,14 +80,16 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
 
     # ---- helpers to modify assignments ----
     def clear_slot():
-        hangar = getattr(main_player, "hangar_system", None)
-        if hangar is not None:
-            hangar.clear_slot(slot_index)
+        inv = getattr(main_player, "inventory_manager", None)
+        if inv is None or getattr(inv, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        inv.hangar.clear_slot(slot_index)
 
     def assign_interceptor(icpt_id: int):
-        hangar = getattr(main_player, "hangar_system", None)
-        if hangar is not None:
-            hangar.assign_to_slot(slot_index, icpt_id)
+        inv = getattr(main_player, "inventory_manager", None)
+        if inv is None or getattr(inv, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        inv.hangar.assign_to_slot(slot_index, icpt_id)
 
     # ---- layout helpers for the cards ----
     BOX_W = 260
@@ -100,16 +119,25 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
     running = True
     while running:
 
-        # Hangar data
-        hangar = getattr(main_player, "hangar_system", None)
-        if hangar is None:
-            return
-
+        # Hangar data: InventoryManager.hangar is required
+        inv_mgr = getattr(main_player, "inventory_manager", None)
+        if inv_mgr is None or getattr(inv_mgr, 'hangar', None) is None:
+            raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
+        hangar = inv_mgr.hangar
         alive_entries = hangar.alive_pool_entries()
         selected_ids = hangar.selected_interceptor_ids()
 
+        # Group entries into selected / stored, then sort by unit_type so
+        # cards are grouped by ship type rather than by numeric id.
         selected_items = [e for e in alive_entries if e.id in selected_ids]
         stored_items = [e for e in alive_entries if e.id not in selected_ids]
+
+        selected_items = sorted(selected_items, key=lambda e: (getattr(e, 'unit_type', '') or ''))
+        stored_items = sorted(stored_items, key=lambda e: (getattr(e, 'unit_type', '') or ''))
+
+        # Caches to avoid expensive per-frame work (unit instantiation and smoothscale)
+        if not hasattr(light_craft_selection_screen, "_power_cache"):
+            light_craft_selection_screen._power_cache = {}
 
         # ---- static layout (no offset here) ----
         selected_title_y = UI_TOP_BAR_HEIGHT + 30
@@ -176,11 +204,6 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             # Mouse wheel – same as inventory: update raw offset
             if event.type == pygame.MOUSEWHEEL:
                 offset_y_raw += event.y * SCROLL_STEP
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button in (4, 5):
-                if event.button == 4:   # wheel up
-                    offset_y_raw += SCROLL_STEP
-                else:                   # wheel down
-                    offset_y_raw -= SCROLL_STEP
 
         # ---- SCROLL LIMITS + SMOOTH RETURN (same logic as inventory) ----
         scroll_area_top = selected_title_y  # content should not scroll above first title
@@ -227,7 +250,7 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
         screen.blit(close_surf, close_rect)
 
         # CURRENT LOADOUT / SQUADS / ESCORTS + fleet preview (static, not scrolled)
-        assignments = hangar.assignments
+        assignments = getattr(hangar, 'assignments', []) if hangar is not None else []
         total_slots = len(assignments)
         equipped_slots = sum(1 for a in assignments if a is not None)
 
@@ -248,6 +271,7 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             equipped_slots,
             len(frigates),
             len(alive_frigates),
+            nav_center_y,
         )
 
         # ---- SCROLLABLE AREA CLIP ----
@@ -299,22 +323,67 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             preview_x = draw_rect.x + 40
             preview_y = draw_rect.y + draw_rect.height // 2
 
-            preview_img = preview_for_unit(getattr(entry, "unit_type"))
-            img = pygame.transform.smoothscale(preview_img, (48, 48))
+            # Use cached scaled preview surface to avoid repeated smoothscale()
+            img = scaled_preview_for_unit(getattr(entry, "unit_type"), (48, 48))
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
-            name = name_font.render(entry.name, True, (230, 230, 255))
-            screen.blit(name, (preview_x + 50, draw_rect.y + 12))
+            from spacegame.ui.ui import draw_multiline_text, draw_power_icon
+            draw_multiline_text(screen, entry.name, name_font, (230, 230, 255), (preview_x + 50, draw_rect.y + 12))
 
-            if getattr(entry, "unit_type") == "resource_collector":
-                dmg = 0
-            elif getattr(entry, "unit_type") == "interceptor":
-                dmg = Interceptor.DEFAULT_BULLET_DAMAGE
+            # Compute a composite "Power" metric for the unit by instantiating
+            # a temporary unit of the appropriate type and averaging key stats.
+            # Compute/lookup a cached composite power metric for this entry.
+            cache_key = (getattr(entry, 'id', None), getattr(entry, 'tier', None))
+            power_cache = light_craft_selection_screen._power_cache
+            if cache_key in power_cache:
+                power_val = power_cache[cache_key]
             else:
-                dmg = 0
-            dmg_text = dmg_font.render(f"Damage: {int(dmg)}", True, (200, 200, 220))
-            screen.blit(dmg_text, (preview_x + 50, draw_rect.y + 44))
+                try:
+                    ut = getattr(entry, 'unit_type', '')
+                    tier = int(getattr(entry, 'tier', 0) or 0)
+                    if ut == 'interceptor':
+                        unit = Interceptor((0, 0), interceptor_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'plasma_bomber':
+                        unit = PlasmaBomber((0, 0), bomber_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'resource_collector':
+                        from spacegame.models.units.resource_collector import ResourceCollector
+                        unit = ResourceCollector((0, 0), collector_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'frigate':
+                        unit = Frigate((0, 0), tier=tier)
+                    else:
+                        unit = None
+                except Exception:
+                    unit = None
+
+                if unit is None:
+                    power_val = 0
+                else:
+                    bullet = float(getattr(unit, 'bullet_damage', 0.0))
+                    armor = float(getattr(unit, 'armor_damage', 0.0))
+                    health = float(getattr(unit, 'max_health', getattr(unit, 'health', 0.0)))
+                    mover = getattr(unit, 'mover', None)
+                    speed = float(getattr(mover, 'speed', getattr(unit, 'speed', 0.0))) if mover is not None else float(getattr(unit, 'speed', 0.0))
+                    try:
+                        power = (bullet + armor + speed + (health / 10.0)) / 4.0
+                    except Exception:
+                        power = 0.0
+                    power_val = int(round(power))
+                power_cache[cache_key] = power_val
+
+            # Draw icon and numeric label (small, lower than the name)
+            icon_size = 12
+            icon_x = preview_x + 50
+            icon_y = draw_rect.y + 56
+            draw_power_icon(screen, (icon_x, icon_y), size=icon_size, color=(200, 200, 220))
+            try:
+                power_label = dmg_font.render(str(int(power_val)), True, (220, 220, 255))
+                label_x = icon_x + icon_size + 8
+                icon_h = int(round(icon_size * 1.2))
+                label_y = icon_y + (icon_h // 2) - (power_label.get_height() // 2)
+                screen.blit(power_label, (label_x, label_y))
+            except Exception:
+                pass
 
         # placeholder cards for incomplete selected row
         selected_count_with_none = 1 + len(selected_items)
@@ -349,22 +418,63 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             preview_x = draw_rect.x + 40
             preview_y = draw_rect.y + draw_rect.height // 2
 
-            preview_img = preview_for_unit(getattr(entry, "unit_type"))
-            img = pygame.transform.smoothscale(preview_img, (48, 48))
+            img = scaled_preview_for_unit(getattr(entry, "unit_type"), (48, 48))
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
-            name = name_font.render(entry.name, True, (230, 230, 255))
-            screen.blit(name, (preview_x + 50, draw_rect.y + 12))
+            from spacegame.ui.ui import draw_multiline_text, draw_power_icon
+            draw_multiline_text(screen, entry.name, name_font, (230, 230, 255), (preview_x + 50, draw_rect.y + 12))
 
-            if getattr(entry, "unit_type") == "resource_collector":
-                dmg = 0
-            elif getattr(entry, "unit_type") == "interceptor":
-                dmg = Interceptor.DEFAULT_BULLET_DAMAGE
+            # Use cached power computation if available
+            cache_key = (getattr(entry, 'id', None), getattr(entry, 'tier', None))
+            power_cache = light_craft_selection_screen._power_cache
+            if cache_key in power_cache:
+                power_val = power_cache[cache_key]
             else:
-                dmg = 0
-            dmg_text = dmg_font.render(f"Damage: {int(dmg)}", True, (200, 200, 220))
-            screen.blit(dmg_text, (preview_x + 50, draw_rect.y + 44))
+                try:
+                    ut = getattr(entry, 'unit_type', '')
+                    tier = int(getattr(entry, 'tier', 0) or 0)
+                    if ut == 'interceptor':
+                        unit = Interceptor((0, 0), interceptor_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'plasma_bomber':
+                        unit = PlasmaBomber((0, 0), bomber_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'resource_collector':
+                        from spacegame.models.units.resource_collector import ResourceCollector
+                        unit = ResourceCollector((0, 0), collector_id=getattr(entry, 'id', None), tier=tier)
+                    elif ut == 'frigate':
+                        unit = Frigate((0, 0), tier=tier)
+                    else:
+                        unit = None
+                except Exception:
+                    unit = None
+
+                if unit is None:
+                    power_val = 0
+                else:
+                    bullet = float(getattr(unit, 'bullet_damage', 0.0))
+                    armor = float(getattr(unit, 'armor_damage', 0.0))
+                    health = float(getattr(unit, 'max_health', getattr(unit, 'health', 0.0)))
+                    mover = getattr(unit, 'mover', None)
+                    speed = float(getattr(mover, 'speed', getattr(unit, 'speed', 0.0))) if mover is not None else float(getattr(unit, 'speed', 0.0))
+                    try:
+                        power = (bullet + armor + speed + (health / 10.0)) / 4.0
+                    except Exception:
+                        power = 0.0
+                    power_val = int(round(power))
+                power_cache[cache_key] = power_val
+
+            icon_size = 12
+            icon_x = preview_x + 50
+            icon_y = draw_rect.y + 56
+            draw_power_icon(screen, (icon_x, icon_y), size=icon_size, color=(200, 200, 220))
+            try:
+                power_label = dmg_font.render(str(int(power_val)), True, (220, 220, 255))
+                label_x = icon_x + icon_size + 8
+                icon_h = int(round(icon_size * 1.2))
+                label_y = icon_y + (icon_h // 2) - (power_label.get_height() // 2)
+                screen.blit(power_label, (label_x, label_y))
+            except Exception:
+                pass
 
         if len(stored_items) > 0:
             items_per_row = 3

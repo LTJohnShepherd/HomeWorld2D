@@ -1,42 +1,46 @@
+"""UI helpers: small widgets, preview image helpers, and simple shape drawers.
+
+This module exposes lightweight utilities used by the game's screens:
+- `Button`: simple rectangular button with hover rendering and click detection.
+- preview image loaders / scalers used across UI screens.
+- small polygon drawing helpers (triangle, diamond, dalton kite, hex).
+
+Keep the helpers minimal and free of game logic; they are intended
+to be safe for import from any UI module.
+"""
+
 import pygame
 from spacegame.config import PREVIEWS_DIR
 
-# ---------- UI helpers ----------
+
 class Button:
-    """Simple rectangular button with hover color and click handling."""
+    """A simple rectangular button with hover color and left-click detection.
 
-    def __init__(self, rect, text, font, base_color=(170,170,170), hover_color=(220,220,220), text_color=(0,0,0)):
-        self.rect = pygame.Rect(rect) #pygame.Rect(left, top, width, height) , rect is a tupple with those values, pygame.Rect() create a Rect object for the button (stores position and size)
-        self.text = text #text for the button
+    The button is responsible for drawing itself and reporting click events.
+    It intentionally does not manage callbacks — callers should call
+    `handle_event` and react to a True return value.
+    """
+
+    def __init__(self, rect, text, font, base_color=(170, 170, 170), hover_color=(220, 220, 220), text_color=(0, 0, 0)):
+        self.rect = pygame.Rect(rect)
+        self.text = text
         self.font = font
-        self.base_color = base_color # the color of the button
-        self.hover_color = hover_color # the color of the button when you hover on it with the mouse.
-        self.text_color = text_color 
+        self.base_color = base_color
+        self.hover_color = hover_color
+        self.text_color = text_color
 
-    def draw(self, surface):# surface: the screen you want to draw on
+    def draw(self, surface):
+        """Render the button into `surface` and handle hover coloring."""
+        mouse_pos = pygame.mouse.get_pos()
+        color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.base_color
+        pygame.draw.rect(surface, color, self.rect, border_radius=12)
+        label = self.font.render(self.text, True, self.text_color)
+        label_rect = label.get_rect(center=self.rect.center)
+        surface.blit(label, label_rect)
 
-        mouse_pos = pygame.mouse.get_pos() #position of the mouse on the screen
-
-        if self.rect.collidepoint(mouse_pos): # set button color depending on mouse hover
-            color = self.hover_color
-        else:
-            color = self.base_color
-
-        pygame.draw.rect(surface, color, self.rect, border_radius=12) # pygame.draw.rect(surface, color, rect (object), width=0, border_radius=0)
-        
-        label = self.font.render(self.text, True, self.text_color) # render the button text into a new surface (text becomes an image that can be drawn)
-        
-        label_rect = label.get_rect(center=self.rect.center) # create a Rect for the text surface and center it inside the button's rectangle
-        
-        surface.blit(label, label_rect) # draw (blit) the rendered text onto the target surface at the calculated position
-
-    # Handle mouse click events: returns True if the left mouse button was pressed
-    # while the cursor is positioned over the button; otherwise returns False.
-    def handle_event(self, event):
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if self.rect.collidepoint(event.pos):
-                return True
-        return False
+    def handle_event(self, event) -> bool:
+        """Return True when the left mouse button is pressed over the button."""
+        return event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.collidepoint(event.pos)
 
 
 # ---------- Shared preview images ----------
@@ -46,6 +50,7 @@ FRIGATE_PREVIEW_IMG    = pygame.image.load(PREVIEWS_DIR + "/Frigate_Preview.png"
 INTERCEPTOR_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Interceptor_Preview.png")
 RESOURCE_COLLECTOR_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Resource_Collector_Preview.png")
 OREM_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/RUOreM.png")
+BOMBER_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Bomber_Preview.png")
 
 # Map unit type keys to preview surfaces for easy lookup by UI code.
 PREVIEW_IMAGE_MAP = {
@@ -53,6 +58,7 @@ PREVIEW_IMAGE_MAP = {
     "frigate": FRIGATE_PREVIEW_IMG,
     "interceptor": INTERCEPTOR_PREVIEW_IMG,
     "resource_collector": RESOURCE_COLLECTOR_PREVIEW_IMG
+    ,"plasma_bomber": BOMBER_PREVIEW_IMG
 }
 
 
@@ -67,6 +73,31 @@ def preview_for_unit(unit_type: str, default: str = "interceptor"):
     if unit_type is None:
         unit_type = default
     return PREVIEW_IMAGE_MAP.get(unit_type, PREVIEW_IMAGE_MAP.get(default))
+
+
+# Cache for scaled preview surfaces to avoid repeated smoothscale() calls.
+_SCALED_PREVIEW_CACHE: dict = {}
+
+def scaled_preview_for_unit(unit_type: str, size: tuple):
+    """Return a scaled preview surface for `unit_type` at `size` (w,h).
+
+    Results are cached in-module to avoid doing `smoothscale` every frame
+    which can be a major source of lag when many cards are drawn.
+    """
+    if unit_type is None:
+        unit_type = "interceptor"
+    key = (unit_type, int(size[0]), int(size[1]))
+    cached = _SCALED_PREVIEW_CACHE.get(key)
+    if cached is not None:
+        return cached
+    base = preview_for_unit(unit_type, default="interceptor")
+    try:
+        surf = pygame.transform.smoothscale(base, (int(size[0]), int(size[1])))
+    except Exception:
+        # fallback to base surface
+        surf = base.copy()
+    _SCALED_PREVIEW_CACHE[key] = surf
+    return surf
 
 # ---------- Shape drawing helpers ----------
 def draw_triangle(surface, center, size, color, thickness=2):
@@ -173,3 +204,89 @@ def draw_armor_bar(surface, x, y, w, h, value, max_value):
         pygame.draw.rect(surface, (90, 190, 255), fill_rect, border_radius=3)
 
     pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)
+
+
+def draw_plus_circle(surface, center, radius, color, plus_size: int = 14, circle_thickness: int = 2, plus_thickness: int = 2):
+    """Draw a circled plus icon: an outlined circle with a centered plus sign.
+
+    - `center` is (x,y)
+    - `radius` is the outer circle radius
+    - `plus_size` controls half-length of plus arms
+    - `circle_thickness` and `plus_thickness` control stroke widths
+    """
+    cx, cy = int(center[0]), int(center[1])
+    pygame.draw.circle(surface, color, (cx, cy), int(radius), int(circle_thickness))
+    # horizontal
+    pygame.draw.line(surface, color, (cx - plus_size, cy), (cx + plus_size, cy), int(plus_thickness))
+    # vertical
+    pygame.draw.line(surface, color, (cx, cy - plus_size), (cx, cy + plus_size), int(plus_thickness))
+
+
+def draw_corner_frame(surface, rect: pygame.Rect, color, corner_len: int = 18, corner_thick: int = 3, bottom_offset: int = 0):
+    """Draw corner-only decorations on `rect`.
+
+    `bottom_offset` moves the bottom corners upward by that many pixels (useful
+    when you want the lower corners to sit above some content inside `rect`).
+    """
+    # top-left
+    pygame.draw.line(surface, color, (rect.left, rect.top), (rect.left + corner_len, rect.top), corner_thick)
+    pygame.draw.line(surface, color, (rect.left, rect.top), (rect.left, rect.top + corner_len), corner_thick)
+
+    # top-right
+    pygame.draw.line(surface, color, (rect.right - corner_len, rect.top), (rect.right, rect.top), corner_thick)
+    pygame.draw.line(surface, color, (rect.right, rect.top), (rect.right, rect.top + corner_len), corner_thick)
+
+    # compute adjusted bottom for bottom corners
+    adjusted_bottom = rect.bottom - bottom_offset if bottom_offset else rect.bottom
+
+    # bottom-left
+    pygame.draw.line(surface, color, (rect.left, adjusted_bottom - corner_len), (rect.left, adjusted_bottom), corner_thick)
+    pygame.draw.line(surface, color, (rect.left, adjusted_bottom), (rect.left + corner_len, adjusted_bottom), corner_thick)
+
+    # bottom-right
+    pygame.draw.line(surface, color, (rect.right - corner_len, adjusted_bottom), (rect.right, adjusted_bottom), corner_thick)
+    pygame.draw.line(surface, color, (rect.right, adjusted_bottom - corner_len), (rect.right, adjusted_bottom), corner_thick)
+
+
+def draw_multiline_text(surface, text: str, font: pygame.font.Font, color, topleft: tuple, line_spacing: int = 2):
+    """Render `text` which may contain '\n' into successive lines starting at `topleft`.
+
+    The first line is drawn at `topleft` (same starting height as previous single-line calls).
+    Subsequent lines are drawn below using `font.get_height() + line_spacing` as the step.
+    """
+    if text is None:
+        return
+    lines = str(text).split("\n")
+    x, y = topleft
+    lh = font.get_height()
+    for i, line in enumerate(lines):
+        surf = font.render(line, True, color)
+        surface.blit(surf, (x, y + i * (lh + line_spacing)))
+
+
+def draw_power_icon(surface, topleft: tuple, size: int = 20, color=(200, 200, 220)):
+    """Draw a small lightning-bolt style power icon inside a box starting at `topleft`.
+
+    The icon is drawn as a filled polygon scaled to `size`.
+    """
+    x0, y0 = int(topleft[0]), int(topleft[1])
+    w = int(size)
+    h = int(round(size * 1.2))
+
+    # Normalized bolt shape points (percent of w/h).
+    rel = [
+        (0.15, 0.00),
+        (0.55, 0.00),
+        (0.35, 0.48),
+        (0.85, 0.48),
+        (0.25, 1.00),
+        (0.45, 0.52),
+        (0.15, 0.52),
+    ]
+
+    pts = [(x0 + int(px * w), y0 + int(py * h)) for (px, py) in rel]
+    try:
+        pygame.draw.polygon(surface, color, pts)
+    except Exception:
+        # fallback: draw a small circle if polygon failed
+        pygame.draw.circle(surface, color, (x0 + w // 2, y0 + h // 2), max(2, w // 3))

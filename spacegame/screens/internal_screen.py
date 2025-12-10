@@ -9,12 +9,10 @@ from spacegame.config import (
     UI_SECTION_BASE_COLOR, 
     UI_SECTION_HOVER_COLOR,
     UI_SECTION_TEXT_COLOR,
-    UI_TAB_UNDERLINE_COLOR,
-    UI_TAB_TEXT_SELECTED,
-    UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR
     )
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
 
 
 def internal_screen(main_player, player_fleet):
@@ -53,32 +51,8 @@ def internal_screen(main_player, player_fleet):
     # ---------- TABS ----------
     tab_labels = ["EXTERNAL", "INTERNAL", "FLEET CONFIGURATION"]
     selected_tab = 1  # INTERNAL initially selected
-    tab_spacing = 16
 
-    tab_entries = []
-    total_tabs_width = -tab_spacing
-    # Measure and compute widths (icon + text + padding)
-    icon_size = 24
-    ICON_MARGIN = 10
-    H_PADDING = 24
-
-    for label in tab_labels:
-        text_surf = tab_font.render(label, True, UI_TAB_TEXT_COLOR)
-        text_width = text_surf.get_width()
-        tab_width = icon_size + ICON_MARGIN + text_width + H_PADDING * 2
-        tab_entries.append({"label": label, "text_surf": text_surf, "width": tab_width})
-        total_tabs_width += tab_width + tab_spacing
-
-    # Move tabs slightly lower so they are not too close to the title text
-    tabs_y = TOP_BAR_HEIGHT - UI_TAB_HEIGHT - 4
-    tabs_left = width // 2 - total_tabs_width // 2
-
-    # Create rects for tabs
-    x = tabs_left
-    for entry in tab_entries:
-        rect = pygame.Rect(x, tabs_y, entry["width"], UI_TAB_HEIGHT)
-        entry["rect"] = rect
-        x += entry["width"] + tab_spacing
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
 
     # ---------- SECTION BUTTONS ----------
     section_width = int(width * 0.32)
@@ -234,45 +208,8 @@ def internal_screen(main_player, player_fleet):
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
 
-        # Tabs (transparent background: only icon, text, highlight on nav lines)
-        for idx, entry in enumerate(tab_entries):
-            rect = entry["rect"]
-            is_selected = idx == selected_tab
-
-            icon_rect = pygame.Rect(0, 0, icon_size, icon_size)
-            icon_rect.centery = rect.centery
-            icon_rect.left = rect.left + H_PADDING
-            pygame.draw.rect(
-                screen,
-                (210, 220, 235) if is_selected else (170, 190, 210),
-                icon_rect,
-                border_radius=4,
-                width=2,
-            )
-
-            text_color = UI_TAB_TEXT_SELECTED if is_selected else UI_TAB_TEXT_COLOR
-            label_surf = tab_font.render(entry["label"], True, text_color)
-            label_rect = label_surf.get_rect()
-            label_rect.centery = rect.centery
-            label_rect.left = icon_rect.right + ICON_MARGIN
-            screen.blit(label_surf, label_rect)
-
-            if is_selected:
-                # highlight segments exactly on the top/bottom nav lines
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_top_y),
-                    (rect.right - 6, nav_top_y),
-                    2,
-                )
-                pygame.draw.line(
-                    screen,
-                    UI_TAB_UNDERLINE_COLOR,
-                    (rect.left + 6, nav_bottom_y),
-                    (rect.right - 6, nav_bottom_y),
-                    2,
-                )
+        # Tabs (draw using shared nav helper)
+        nav_top_y, nav_bottom_y = draw_tabs(screen, tab_entries, selected_tab, tabs_y, width, tab_font)
 
         # Section buttons + larger icon squares with internal geometry
         ICON_BOX_SIZE = 34

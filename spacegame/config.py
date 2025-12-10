@@ -31,13 +31,10 @@ PIRATE_DEFAULT_BULLET_DAMAGE = 10.0
 PIRATE_DEFAULT_ARMOR_DAMAGE  = 9.0
 
 # ---- Expedition ship / hangar ----
-EXPEDITION_MAX_HEALTH  = 500.0
-EXPEDITION_MAX_ARMOR   = 300.0
 HANGAR_SLOT_COUNT      = 3
 INTERCEPTOR_POOL_SIZE  = 5
 RESOURCE_COLLECTOR_POOL_SIZE = 5  # Number of resource collectors to create at game start
-FRIGATE_MAX_ARMOR      = 180.0
-PIRATE_MAX_ARMOR       = 220.0
+PLASMA_BOMBER_POOL_SIZE = 1  # Number of plasma bombers to create at game start
 
 # ---- Projectile defaults ----
 PROJECTILE_SPEED    = 600.0

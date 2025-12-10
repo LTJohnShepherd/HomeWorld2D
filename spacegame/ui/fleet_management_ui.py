@@ -1,10 +1,18 @@
+"""Fleet preview drawing helpers.
+
+Contains small utilities used by fleet-related screens for consistent
+visuals (tier icons, section headers and preview layout geometry).
+"""
+
 import pygame
 from spacegame.config import UI_ICON_BLUE, UI_ICON_WHITE
 
+
 def tier_to_roman(tier_value: int) -> str:
-    """
-    Convert a numeric tier into a short Roman-numeral-ish label.
-    Matches the original implementation used in the fleet screens.
+    """Convert a numeric tier into a short Roman-like label.
+
+    The function returns a compact label used in tier badges. For values
+    beyond supported numerals it appends a `+N` suffix (e.g. "III+2").
     """
     if tier_value <= 0:
         return "0"
@@ -15,11 +23,10 @@ def tier_to_roman(tier_value: int) -> str:
 
 
 def draw_tier_icon(surface: pygame.Surface, host_rect: pygame.Rect, tier_value: int) -> None:
-    """
-    Draw the blue tier flag in the top-right corner of host_rect,
-    with a centered Roman numeral indicating the tier.
-    This is factored out so that fleet management, squad detail,
-    and light craft selection all use the exact same visuals.
+    """Draw a small tier badge in the top-right corner of `host_rect`.
+
+    The badge contains a Roman-like numeral produced by `tier_to_roman`.
+    This helper ensures the same visual is used across fleet-related UIs.
     """
     large_tier_font = pygame.font.Font(None, 26)
 
@@ -49,23 +56,28 @@ def draw_fleet_section_titles(
     equipped_slots: int,
     frigates_count: int,
     alive_frigates_count: int,
+    nav_center_y: int = None,
 ) -> None:
     """
     Draw the three section headers and their underlines:
 
       CURRENT LOADOUT   |   SQUADS: x / y   |   ESCORTS: a / b
 
-    This preserves the exact layout math used in both fleet_management.py
-    and squad_detail.py so the visuals remain identical.
+    This preserves the layout math used in fleet screens so visuals remain
+    consistent across `fleet_management.py` and `squad_detail.py`.
     """
     fleet_title_bottom = title_rect.bottom
     label_height = label_font.size("M")[1]
 
-    # Same vertical offset logic as before
-    labels_y = fleet_title_bottom + (
-        previews_top - fleet_title_bottom - label_height
-    ) // 7.1
+    # If a navigation center Y is provided, align the labels' vertical center
+    # to that Y so they sit on the same row as the back/close buttons.
+    if nav_center_y is not None:
+        labels_y = int(nav_center_y - (label_height // 2))
+    else:
+        # Fallback: compute labels_y using existing layout proportions.
+        labels_y = fleet_title_bottom + (previews_top - fleet_title_bottom - label_height) // 7.1
 
+    # line_margin tuned to visually balance underline spacing with label height
     line_margin = int(label_height * 15 / 19.5)
 
     # LEFT: CURRENT LOADOUT

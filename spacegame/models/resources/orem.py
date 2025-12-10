@@ -2,14 +2,12 @@ from spacegame.models.resources.ore import Ore
 
 
 class RUOreM(Ore):
-    """Concrete ore for the RU TYPE M ORE shown in the screenshot.
-
-    For quick testing it carries a `quantity` field representing the amount
-    currently stored in the inventory slot.
+    """
+    Concrete ore for the RU TYPE M ORE.
     """
 
     def __init__(self, quantity: int = 0):
-        # Tier 1 (example) and stack up to 10,000 per slot
+        # Tier 0 and stack up to 10,000 per slot
         super().__init__(tier=0, stack_size=10000)
         self.quantity = int(quantity)
 

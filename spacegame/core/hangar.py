@@ -1,5 +1,19 @@
+"""Hangar management for a mothership.
+
+This module provides the `Hangar` helper which owns a persistent pool of
+light-craft entries, per-slot assignments, and runtime bookkeeping for
+deployed ships. The `Hangar` exists as a concise, authoritative API used
+by UI and gameplay systems.
+"""
+
 from dataclasses import dataclass
 from typing import Any
+from pygame.math import Vector2
+
+# Import unit classes here so Hangar can spawn light-craft on behalf of its owner.
+from spacegame.models.units.interceptor import Interceptor
+from spacegame.models.units.resource_collector import ResourceCollector
+from spacegame.models.units.plasma_bomber import PlasmaBomber
 
 
 @dataclass
@@ -23,7 +37,7 @@ class Hangar:
       - pool: the persistent pool (all possible crafts, alive/dead, any unit_type)
     """
 
-    def __init__(self, owner, num_slots: int = 3, interceptor_pool_size: int = 5, collector_pool_size: int = 0) -> None:
+    def __init__(self, owner, num_slots: int = 3, interceptor_pool_size: int = 5, collector_pool_size: int = 0, bomber_pool_size: int = 0, inventory_manager=None) -> None:
         self.owner = owner
         self.num_slots = num_slots
 
@@ -37,8 +51,9 @@ class Hangar:
         self.assignments = [None] * num_slots  # type: list[int | None]
 
         # Persistent pool (data only, not ship instances).
-        # Initialized with both interceptors and resource collectors at game start.
-        self.pool = self._initialize_pool(interceptor_pool_size, collector_pool_size)
+        # The InventoryManager is expected to register this hangar; there
+        # are no fallback saved pools supported. Initialize the pool normally.
+        self.pool = self._initialize_pool(interceptor_pool_size, collector_pool_size, bomber_pool_size)
 
         # Track all currently deployed ships from this hangar.
         self.deployed = []
@@ -46,10 +61,15 @@ class Hangar:
         # Default: assign first alive entries to slots, up to num_slots.
         self._assign_default_slots()
 
+        # If an inventory manager was provided, register this hangar so the
+        # manager can forward hangar operations. Registration is strict.
+        if inventory_manager is not None:
+            inventory_manager.register_hangar(self)
+
 
     # ---------- Pool initialization ----------
 
-    def _initialize_pool(self, interceptor_count: int, collector_count: int) -> list[HangarEntry]:
+    def _initialize_pool(self, interceptor_count: int, collector_count: int, bomber_count: int = 0) -> list[HangarEntry]:
         """Create and return the initial hangar pool with interceptors and collectors.
         
         This method is called once at Hangar initialization to set up all beginner
@@ -59,6 +79,7 @@ class Hangar:
         Args:
             interceptor_count: Number of interceptor entries to create.
             collector_count: Number of resource collector entries to create.
+            bomber_count: Number of plasma bomber entries to create.
         
         Returns:
             List of HangarEntry objects with unique IDs.
@@ -70,7 +91,7 @@ class Hangar:
         for i in range(interceptor_count):
             pool.append(HangarEntry(
                 id=entry_id,
-                name=f"Interceptor {i+1}",
+                name="INTERCEPTOR\nSQUADRON",
                 unit_type="interceptor"
             ))
             entry_id += 1
@@ -79,8 +100,17 @@ class Hangar:
         for j in range(collector_count):
             pool.append(HangarEntry(
                 id=entry_id,
-                name=f"Collector {j+1}",
+                name="RESOURCE\nCOLLECTOR",
                 unit_type="resource_collector"
+            ))
+            entry_id += 1
+
+        # Create plasma bomber entries (IDs starting after collectors)
+        for k in range(bomber_count):
+            pool.append(HangarEntry(
+                id=entry_id,
+                name="PLASMA\nBOMBER",
+                unit_type="plasma_bomber"
             ))
             entry_id += 1
 
@@ -264,3 +294,47 @@ class Hangar:
                 "ship": ship,
                 "ship_alive": ship_alive,
             }
+
+    def deploy(self, slot: int) -> Any:
+        """
+        Spawn (construct) the unit assigned to `slot` at a position just in front
+        of the owner (mothership) and update hangar bookkeeping.
+
+        Returns the spawned unit object, or `None` if nothing could be deployed.
+        """
+        if not self.can_deploy(slot):
+            return None
+
+        unit_id = None
+        if 0 <= slot < len(self.assignments):
+            unit_id = self.assignments[slot]
+
+        # spawn slightly in front of the mothership using owner's angle/pos
+        offset = Vector2(70, 50).rotate(-getattr(self.owner, 'angle', 0))
+
+        tier_value = 0
+        unit_type = ""
+
+        if unit_id is not None:
+            entry = self.get_entry_by_id(unit_id)
+            if entry is not None and entry.alive:
+                tier_value = entry.tier
+                unit_type = entry.unit_type
+
+        # Construct the appropriate unit type
+        unit = None
+        spawn_pos = getattr(self.owner, 'pos', Vector2(0, 0)) + offset
+
+        if unit_type == "resource_collector":
+            unit = ResourceCollector(spawn_pos, collector_id=unit_id, tier=tier_value)
+        elif unit_type == "interceptor":
+            unit = Interceptor(spawn_pos, interceptor_id=unit_id, tier=tier_value)
+        elif unit_type == "plasma_bomber":
+            unit = PlasmaBomber(spawn_pos, bomber_id=unit_id, tier=tier_value)
+
+        if unit is None:
+            return None
+
+        # Let the hangar update internal bookkeeping for the deployed unit
+        self.on_deployed(slot, unit)
+        return unit
