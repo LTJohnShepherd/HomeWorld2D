@@ -16,6 +16,6 @@ class MineableAsteroidA(Asteroid):
             # scale to diameter
             diameter = max(4, int(self.radius * 2))
             surf = pygame.transform.smoothscale(surf, (diameter, diameter))
-            self._sprite = surf
+            self.set_sprite(surf)
         except Exception:
-            self._sprite = None
+            pass

@@ -1,7 +1,7 @@
 import sys
 import pygame
-from spacegame.ui.fleet_management_ui import draw_tier_icon
-from spacegame.ui.ui import OREM_PREVIEW_IMG, scaled_preview_for_unit
+from spacegame.ui.fleet_management_ui import draw_tier_icon_image
+from spacegame.ui.ui import OREM_PREVIEW_IMG, scaledpreview_for_unit
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.ores.orem import RUOreM
 from spacegame.models.ores.orea import RUOreA
@@ -23,7 +23,8 @@ from spacegame.config import (
     UI_NAV_LINE_COLOR,
 )
 from spacegame.config import PREVIEWS_DIR
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.ui import UI_BG_IMG
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
 from spacegame.core.modules_manager import manager as modules_manager
 
 
@@ -73,9 +74,10 @@ def inventory_screen(main_player, player_fleet):
 
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
+    icon_filenames = ["Nav_Icon_Inventory.png", "Nav_Icon_Bridge.png", "Nav_Icon_Fabricator.png", "Nav_Icon_Refinery.png", "Nav_Icon_InternalModules.png"]
     selected_tab = 0  # INVENTORY selected
 
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     disabled_labels = set()
     if not modules_manager.get_fabricators():
         disabled_labels.add("FABRICATION")
@@ -305,7 +307,10 @@ def inventory_screen(main_player, player_fleet):
         offset_y_raw = target
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Nav band coordinates (UI that should clip over the cards)
         pygame.draw.rect(
@@ -331,14 +336,13 @@ def inventory_screen(main_player, player_fleet):
         capacity_display_rect.centery = title_rect.centery
         screen.blit(capacity_surf, capacity_display_rect)
 
-        # Back arrow (on top of nav background)
-        arrow_color = (220, 235, 255)
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # Back arrow (on top of nav background) - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_size = 32
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -365,13 +369,13 @@ def inventory_screen(main_player, player_fleet):
             pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
 
             tier_value = getattr(entry, "tier", 0)
-            draw_tier_icon(screen, draw_rect, tier_value)
+            draw_tier_icon_image(screen, draw_rect, tier_value)
 
             preview_x = draw_rect.x + 40
             preview_y = draw_rect.y + draw_rect.height // 2
 
             # preview image (pick by unit_type) — use cached scaled preview
-            img = scaled_preview_for_unit(getattr(entry, "unit_type"), (48, 48))
+            img = scaledpreview_for_unit(getattr(entry, "unit_type"), (48, 48))
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
@@ -429,7 +433,7 @@ def inventory_screen(main_player, player_fleet):
                 power_label = dmg_font.render(str(int(power_val)), True, (220, 220, 255))
                 icon_h = int(round(icon_size * 1.2))
                 label_y = icon_y + (icon_h // 2) - (power_label.get_height() // 2)
-                label_x = icon_x + icon_size + 8
+                label_x = icon_x + icon_size + 12
                 screen.blit(power_label, (label_x, label_y))
             except Exception:
                 pass
@@ -471,7 +475,7 @@ def inventory_screen(main_player, player_fleet):
             draw_rect = rect.move(0, offset_y)
             pygame.draw.rect(screen, (30, 40, 70), draw_rect, border_radius=0)
             pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
-            draw_tier_icon(screen, draw_rect, getattr(module, "tier", 0))
+            draw_tier_icon_image(screen, draw_rect, getattr(module, "tier", 0))
 
             # preview/thumbnail
             try:
@@ -523,7 +527,7 @@ def inventory_screen(main_player, player_fleet):
             # Card background (match ship card style)
             pygame.draw.rect(screen, (30, 40, 70), draw_rect, border_radius=0)
             pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
-            draw_tier_icon(screen, draw_rect, getattr(ore, "tier", 0))
+            draw_tier_icon_image(screen, draw_rect, getattr(ore, "tier", 0))
 
             # Preview image: prefer ore-specific preview file if available
             try:

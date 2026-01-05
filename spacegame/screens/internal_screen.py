@@ -1,6 +1,6 @@
 import sys
 import pygame
-from spacegame.ui.ui import Button, draw_health_bar, draw_armor_bar
+from spacegame.ui.ui import Button, draw_health_bar, draw_armor_bar, UI_BG_IMG
 from spacegame.config import (
     SCREEN_WIDTH, 
     SCREEN_HEIGHT, 
@@ -10,10 +10,19 @@ from spacegame.config import (
     UI_SECTION_HOVER_COLOR,
     UI_SECTION_TEXT_COLOR,
     UI_NAV_BG_COLOR,
-    UI_NAV_LINE_COLOR
+    UI_NAV_LINE_COLOR,
+    PREVIEWS_DIR,
     )
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
 from spacegame.core.modules_manager import manager as modules_manager
+
+
+def _load_icon(filename: str) -> pygame.Surface | None:
+    """Load icon from previews folder."""
+    try:
+        return pygame.image.load(f"{PREVIEWS_DIR}/{filename}").convert_alpha()
+    except Exception:
+        return None
 
 
 def internal_screen(main_player, player_fleet):
@@ -51,9 +60,10 @@ def internal_screen(main_player, player_fleet):
 
     # ---------- TABS ----------
     tab_labels = ["EXTERNAL", "INTERNAL", "FLEET CONFIGURATION"]
+    icon_filenames = ["Nav_Icon_External.png", "Nav_Icon_Internal.png", "Nav_Icon_Loadout.png"]
     selected_tab = 1  # INTERNAL initially selected
 
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     disabled_labels = set()
     if not modules_manager.get_fabricators():
         disabled_labels.add("FABRICATION")
@@ -117,11 +127,16 @@ def internal_screen(main_player, player_fleet):
     )
 
     section_buttons = [
-        ("STORAGE", storage_btn),
-        ("BRIDGE", bridge_btn),
-        ("FABRICATION", fabrication_btn),
-        ("REFINING", refining_btn),
+        ("STORAGE", storage_btn, "Nav_Icon_Inventory.png"),
+        ("BRIDGE", bridge_btn, "Nav_Icon_Bridge.png"),
+        ("FABRICATION", fabrication_btn, "Nav_Icon_Fabricator.png"),
+        ("REFINING", refining_btn, "Nav_Icon_Refinery.png"),
     ]
+    
+    # Preload icons
+    icon_cache = {}
+    for name, btn, icon_file in section_buttons:
+        icon_cache[name] = _load_icon(icon_file)
 
     # ---------- HEALTH BAR ----------
     health_bar_width = int(width * 0.80)
@@ -174,7 +189,7 @@ def internal_screen(main_player, player_fleet):
                             selected_tab = idx
                         break
 
-                for name, btn in section_buttons:
+                for name, btn, icon_file in section_buttons:
                     if btn.handle_event(event):
                         if name == "STORAGE":
                             from spacegame.screens.inventory import inventory_screen
@@ -200,7 +215,10 @@ def internal_screen(main_player, player_fleet):
                                 return "to_game"
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Nav band coordinates
         nav_top_y = tabs_y - 6
@@ -222,14 +240,12 @@ def internal_screen(main_player, player_fleet):
         # Title (on top of nav background)
         screen.blit(title_surf, title_rect)
 
-        # Back arrow (on top of nav background)
-        arrow_color = (220, 235, 255)
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # Back arrow (on top of nav background) - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -237,9 +253,9 @@ def internal_screen(main_player, player_fleet):
         # Tabs (draw using shared nav helper)
         nav_top_y, nav_bottom_y = draw_tabs(screen, tab_entries, selected_tab, tabs_y, width, tab_font, disabled_labels=disabled_labels)
 
-        # Section buttons + larger icon squares with internal geometry
+        # Section buttons + icon images
         ICON_BOX_SIZE = 34
-        for name, btn in section_buttons:
+        for name, btn, icon_file in section_buttons:
             # visually disable buttons when corresponding modules are not equipped
             if name == "FABRICATION" and "FABRICATION" in disabled_labels:
                 btn.text_color = (140, 140, 140)
@@ -263,43 +279,12 @@ def internal_screen(main_player, player_fleet):
                 border_radius=4,
             )
 
-            cx, cy = icon_box_rect.center
-
-            if name == "STORAGE":
-                r = 3
-                offset = 7
-                for dx in (-offset, offset):
-                    for dy in (-offset, offset):
-                        pygame.draw.circle(screen, UI_SECTION_TEXT_COLOR, (cx + dx, cy + dy), r)
-            elif name == "BRIDGE":
-                star_r_outer = 10
-                star_r_inner = 4
-                points = []
-                for i in range(10):
-                    ang = i * 3.14159 / 5.0
-                    r = star_r_outer if i % 2 == 0 else star_r_inner
-                    v = pygame.math.Vector2(1, 0).rotate_rad(ang)
-                    px = cx + int(r * v.x)
-                    py = cy + int(r * v.y)
-                    points.append((px, py))
-                pygame.draw.polygon(screen, UI_SECTION_TEXT_COLOR, points, width=1)
-            elif name == "FABRICATION":
-                p1 = (icon_box_rect.left + 5, icon_box_rect.bottom - 5)
-                p2 = (icon_box_rect.left + 5, icon_box_rect.top + 5)
-                p3 = (icon_box_rect.right - 5, icon_box_rect.bottom - 5)
-                pygame.draw.polygon(screen, UI_SECTION_TEXT_COLOR, [p1, p2, p3], width=1)
-            elif name == "REFINING":
-                bar_w = 4
-                gap = 3
-                start_x = cx - (bar_w * 3 + gap * 2) // 2
-                for i in range(3):
-                    bx = start_x + i * (bar_w + gap)
-                    pygame.draw.rect(
-                        screen,
-                        UI_SECTION_TEXT_COLOR,
-                        (bx, cy - 8, bar_w, 16),
-                        width=1,
-                    )
+            # Draw icon image
+            icon_surf = icon_cache.get(name)
+            if icon_surf:
+                icon_scaled = pygame.transform.smoothscale(icon_surf, (ICON_BOX_SIZE - 8, ICON_BOX_SIZE - 8))
+                icon_draw_rect = icon_scaled.get_rect(center=icon_box_rect.center)
+                screen.blit(icon_scaled, icon_draw_rect)
 
         # Health bar at the bottom
         if hasattr(main_player, "max_health") and main_player.max_health > 0:

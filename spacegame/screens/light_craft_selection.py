@@ -8,11 +8,12 @@ player's `InventoryManager.hangar`.
 import pygame
 import sys
 from spacegame.ui.fleet_management_ui import (
-    draw_tier_icon,
+    draw_tier_icon_image,
     draw_fleet_section_titles,
     compute_fleet_preview_layout,
 )
-from spacegame.ui.ui import scaled_preview_for_unit
+from spacegame.ui.ui import scaledpreview_for_unit, UI_BG_IMG
+from spacegame.ui.nav_ui import get_back_arrow_image
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.units.plasma_bomber import PlasmaBomber
 from spacegame.models.units.frigate import Frigate
@@ -232,19 +233,20 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
         offset_y_raw = target  # prevent internal drift past limits
 
         # ---- DRAW ----
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # nav title
         screen.blit(title_surf, title_rect)
 
-        # back arrow
-        arrow_color = UI_TAB_TEXT_SELECTED
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # back arrow - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # close X
         screen.blit(close_surf, close_rect)
@@ -318,13 +320,13 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
 
             tier_value = getattr(entry, "tier", 0)
-            draw_tier_icon(screen, draw_rect, tier_value)
+            draw_tier_icon_image(screen, draw_rect, tier_value)
 
             preview_x = draw_rect.x + 40
             preview_y = draw_rect.y + draw_rect.height // 2
 
             # Use cached scaled preview surface to avoid repeated smoothscale()
-            img = scaled_preview_for_unit(getattr(entry, "unit_type"), (48, 48))
+            img = scaledpreview_for_unit(getattr(entry, "unit_type"), (48, 48))
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
@@ -378,7 +380,7 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             draw_power_icon(screen, (icon_x, icon_y), size=icon_size, color=(200, 200, 220))
             try:
                 power_label = dmg_font.render(str(int(power_val)), True, (220, 220, 255))
-                label_x = icon_x + icon_size + 8
+                label_x = icon_x + icon_size + 12
                 icon_h = int(round(icon_size * 1.2))
                 label_y = icon_y + (icon_h // 2) - (power_label.get_height() // 2)
                 screen.blit(power_label, (label_x, label_y))
@@ -413,12 +415,12 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
 
             tier_value = getattr(entry, "tier", 0)
-            draw_tier_icon(screen, draw_rect, tier_value)
+            draw_tier_icon_image(screen, draw_rect, tier_value)
 
             preview_x = draw_rect.x + 40
             preview_y = draw_rect.y + draw_rect.height // 2
 
-            img = scaled_preview_for_unit(getattr(entry, "unit_type"), (48, 48))
+            img = scaledpreview_for_unit(getattr(entry, "unit_type"), (48, 48))
             rect_img = img.get_rect(center=(preview_x, preview_y))
             screen.blit(img, rect_img.topleft)
 
@@ -469,7 +471,7 @@ def light_craft_selection_screen(main_player, player_fleet, slot_index: int):
             draw_power_icon(screen, (icon_x, icon_y), size=icon_size, color=(200, 200, 220))
             try:
                 power_label = dmg_font.render(str(int(power_val)), True, (220, 220, 255))
-                label_x = icon_x + icon_size + 8
+                label_x = icon_x + icon_size + 12
                 icon_h = int(round(icon_size * 1.2))
                 label_y = icon_y + (icon_h // 2) - (power_label.get_height() // 2)
                 screen.blit(power_label, (label_x, label_y))

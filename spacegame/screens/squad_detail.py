@@ -1,13 +1,15 @@
 import sys
 import pygame
 from spacegame.ui.fleet_management_ui import (
-    draw_tier_icon,
+    draw_tier_icon_image,
     draw_fleet_section_titles,
     compute_fleet_preview_layout,
 )
 
 from pygame.math import Vector2
 from spacegame.ui.ui import preview_for_unit, draw_triangle, draw_dalton, draw_plus_circle
+from spacegame.ui.nav_ui import get_back_arrow_image
+from spacegame.ui.ui import UI_BG_IMG
 from spacegame.models.units.frigate import Frigate
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.units.plasma_bomber import PlasmaBomber
@@ -337,7 +339,10 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
                     continue  # re-enter loop with new slot_index
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # title + back / close
         screen.blit(title_surf, title_rect)
@@ -348,7 +353,14 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
             (back_arrow_rect.right, back_arrow_rect.top),
             (back_arrow_rect.right, back_arrow_rect.bottom),
         ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # back arrow - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
+        else:
+            pygame.draw.polygon(screen, arrow_color, arrow_points)
         screen.blit(close_surf, close_rect)
 
         # -------- Section titles + lines (CURRENT LOADOUT / SQUADS / ESCORTS) --------
@@ -514,7 +526,7 @@ def squad_detail_screen(main_player, player_fleet, slot_index: int):
             tier_y = rarity_rect.centery + 8
             tier_x = (ship_rect.left + remove_center[0]) // 2
             tier_host_rect.center = (tier_x, tier_y)
-            draw_tier_icon(screen, tier_host_rect, slot_info["tier"])
+            draw_tier_icon_image(screen, tier_host_rect, slot_info["tier"])
         else:
             # empty slot: big plus-circle
             pygame.draw.circle(screen, PLUS_CIRCLE, plus_rect.center, plus_radius, 3)

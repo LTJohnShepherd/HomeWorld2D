@@ -29,10 +29,33 @@ class InventoryManager:
         self.modules: List[object] = []
 
     def _trigger_autosave(self) -> None:
-        """Attempt to save owner state; failures are swallowed to avoid crashes."""
+        """Post a custom SAVE_GAME event so the running screen loop performs the save.
+
+        This replaces the previous direct save call. The event contains an
+        `owner` attribute with the object to save.
+        """
+        # Avoid module-level cycles by importing here.
         try:
-            # import here to avoid module-level cycles
+            import pygame
+            from spacegame.core import events as _events
+
+            ev = _events.make_save_game_event(self.owner)
+            try:
+                pygame.event.post(ev)
+            except Exception:
+                # If posting to the event queue fails (unlikely), fall back
+                # to performing a direct save below.
+                pass
+        except Exception:
+            # If events/pygame cannot be imported for any reason, continue
+            # and attempt a direct save below.
+            pass
+
+        # Also perform a direct save immediately to ensure persistence even
+        # when the current screen's event loop doesn't handle the custom event.
+        try:
             from spacegame.core import save as _save
+
             try:
                 _save.save_game(self.owner)
             except Exception:

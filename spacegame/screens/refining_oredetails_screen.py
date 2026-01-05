@@ -15,7 +15,8 @@ from spacegame.config import (
     PREVIEWS_DIR,
 )
 from spacegame.core.refining import get_refinery_manager
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
+from spacegame.ui.ui import UI_BG_IMG
 from spacegame.core.modules_manager import manager as modules_manager
 from spacegame.ui.fabrication_ui import (
     generate_slot_rects,
@@ -24,8 +25,8 @@ from spacegame.ui.fabrication_ui import (
     make_card_rect,
     compute_idx_rect_base,
 )
-from spacegame.ui.ui import draw_plus_circle, draw_corner_frame
-from spacegame.ui.fleet_management_ui import draw_tier_icon
+from spacegame.ui.ui import draw_plus_circle, drawCornerFrame
+from spacegame.ui.fleet_management_ui import draw_tier_icon_image
 from spacegame.models.ores.orem import RUOreM
 from spacegame.models.ores.orea import RUOreA
 from spacegame.models.ores.oreb import RUOreB
@@ -71,9 +72,10 @@ def refining_oredetails_screen(main_player, player_fleet, selected_refinery_inde
 
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
+    icon_filenames = ["Nav_Icon_Inventory.png", "Nav_Icon_Bridge.png", "Nav_Icon_Fabricator.png", "Nav_Icon_Refinery.png", "Nav_Icon_InternalModules.png"]
     selected_tab = 3  # REFINING selected
 
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     disabled_labels = set()
     if not modules_manager.get_fabricators():
         disabled_labels.add("FABRICATION")
@@ -264,7 +266,10 @@ def refining_oredetails_screen(main_player, player_fleet, selected_refinery_inde
 
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Nav band coordinates
         nav_top_y = tabs_y - 6
@@ -286,14 +291,13 @@ def refining_oredetails_screen(main_player, player_fleet, selected_refinery_inde
         # Title (on top of nav background)
         screen.blit(title_surf, title_rect)
 
-        # Back arrow (on top of nav background)
-        arrow_color = (220, 235, 255)
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # Back arrow (on top of nav background) - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_size = 32
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -467,7 +471,7 @@ def refining_oredetails_screen(main_player, player_fleet, selected_refinery_inde
         big_corner_thick = 4
         corner_color = UI_TAB_TEXT_SELECTED
         bottom_offset = 80
-        draw_corner_frame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick, bottom_offset=bottom_offset)
+        drawCornerFrame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick, bottom_offset=bottom_offset)
 
         # --- preview in the center of the big rect ---
         img = None
@@ -535,13 +539,13 @@ def refining_oredetails_screen(main_player, player_fleet, selected_refinery_inde
             else:
                 ore_rect = pygame.Rect(right_rect.left + 16, row_y - ore_size // 2, ore_size, ore_size)
 
-            # ore tier flag box (keep small tier flag)
+            # ore tier icon (keep small)
             flag_w = 70
             flag_h = 24
             flag_rect = pygame.Rect(0, 0, flag_w, flag_h)
             flag_rect.left = ore_rect.right + 12
             flag_rect.centery = ore_rect.centery
-            draw_tier_icon(screen, flag_rect, ore.tier)
+            draw_tier_icon_image(screen, flag_rect, ore.tier)
             pygame.draw.rect(screen, UI_NAV_LINE_COLOR, flag_rect, width=2)
 
             flag_text = f"{ore_letter}"
@@ -680,28 +684,13 @@ def refining_oredetails_screen(main_player, player_fleet, selected_refinery_inde
                 pygame.draw.rect(screen, icon_bg, icon_rect)
                 pygame.draw.rect(screen, WARNING_ORANGE, icon_rect, 1)
 
-                margin = icon_rect.width * 0.23
-                top_y = icon_rect.top + margin
-                bottom_y = icon_rect.bottom - margin
-                left_x = icon_rect.left + margin
-                right_x = icon_rect.right - margin
-                tri_points = [
-                    ((left_x + right_x) / 2, top_y),
-                    (left_x, bottom_y),
-                    (right_x, bottom_y),
-                ]
-                pygame.draw.polygon(screen, WARNING_ORANGE, tri_points)
-
-                cx = (left_x + right_x) / 2
-                ex_top = top_y + (bottom_y - top_y) * 0.35
-                ex_bottom = bottom_y - (bottom_y - top_y) * 0.2
-                pygame.draw.line(screen, outer_bg, (cx, ex_top), (cx, ex_bottom), 3)
-                pygame.draw.circle(
-                    screen,
-                    outer_bg,
-                    (int(cx), int(bottom_y - (bottom_y - top_y) * 0.1)),
-                    2,
-                )
+                # Load and scale warning icon image
+                warning_icon_path = f"{PREVIEWS_DIR}/WarningIcon_TriangleNoGlow.png"
+                warning_icon = pygame.image.load(warning_icon_path)
+                icon_size = int(icon_rect.width * 0.75)
+                warning_icon = pygame.transform.scale(warning_icon, (icon_size, icon_size))
+                warning_icon_rect = warning_icon.get_rect(center=icon_rect.center)
+                screen.blit(warning_icon, warning_icon_rect)
 
                 warn_text = "INSUFFICIENT RESOURCES"
                 warn_surf = btn_font.render(warn_text, True, (255, 230, 120))

@@ -1,25 +1,51 @@
 """Navigation tab helpers used by UI screens.
 
 Provides `create_tab_entries` for layout metadata and `draw_tabs` for
-rendering the tab row. Keep these helpers simple and free of game logic.
+rendering the tab row with icons. Keep these helpers simple and free of game logic.
 """
 
 import pygame
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Optional
 from spacegame.config import (
     UI_TAB_HEIGHT,
     UI_TOP_BAR_HEIGHT,
     UI_TAB_TEXT_COLOR,
     UI_TAB_TEXT_SELECTED,
     UI_TAB_UNDERLINE_COLOR,
+    PREVIEWS_DIR,
 )
+
+_icon_cache: Dict[str, pygame.Surface] = {}
+_back_arrow_img: Optional[pygame.Surface] = None
+
+
+def _load_icon(icon_filename: str) -> Optional[pygame.Surface]:
+    """Load and cache an icon image from the previews folder."""
+    if icon_filename not in _icon_cache:
+        try:
+            path = f"{PREVIEWS_DIR}/{icon_filename}"
+            img = pygame.image.load(path).convert_alpha()
+            _icon_cache[icon_filename] = img
+        except Exception:
+            return None
+    return _icon_cache.get(icon_filename)
+
+
+def get_back_arrow_image() -> Optional[pygame.Surface]:
+    """Load and cache the back arrow image."""
+    global _back_arrow_img
+    if _back_arrow_img is None:
+        _back_arrow_img = _load_icon("BackArrow.png")
+    return _back_arrow_img
 
 
 def create_tab_entries(tab_labels: List[str], tab_font: pygame.font.Font, width: int,
                        top_bar_height: int = UI_TOP_BAR_HEIGHT,
-                       ui_tab_height: int = UI_TAB_HEIGHT) -> Tuple[List[dict], int]:
+                       ui_tab_height: int = UI_TAB_HEIGHT,
+                       icon_filenames: Optional[List[str]] = None) -> Tuple[List[dict], int]:
     """Create tab entry metadata (text surf, width, rect placeholder).
 
+    icon_filenames: optional list of icon filenames to display next to each tab.
     Returns (tab_entries, tabs_y).
     """
     tab_spacing = 16
@@ -29,11 +55,24 @@ def create_tab_entries(tab_labels: List[str], tab_font: pygame.font.Font, width:
 
     tab_entries = []
     total_tabs_width = -tab_spacing
-    for label in tab_labels:
+    for idx, label in enumerate(tab_labels):
         text_surf = tab_font.render(label, True, UI_TAB_TEXT_COLOR)
         text_width = text_surf.get_width()
         tab_width = icon_size + ICON_MARGIN + text_width + H_PADDING * 2
-        tab_entries.append({"label": label, "text_surf": text_surf, "width": tab_width})
+        
+        icon_filename = None
+        icon_surf = None
+        if icon_filenames and idx < len(icon_filenames):
+            icon_filename = icon_filenames[idx]
+            icon_surf = _load_icon(icon_filename)
+        
+        tab_entries.append({
+            "label": label,
+            "text_surf": text_surf,
+            "width": tab_width,
+            "icon_filename": icon_filename,
+            "icon_surf": icon_surf,
+        })
         total_tabs_width += tab_width + tab_spacing
 
     tabs_y = top_bar_height - ui_tab_height - 4
@@ -79,6 +118,13 @@ def draw_tabs(screen: pygame.Surface, tab_entries: List[dict], selected_tab: int
             border_radius=4,
             width=2,
         )
+
+        # Draw icon if available
+        icon_surf = entry.get("icon_surf")
+        if icon_surf:
+            icon_scaled = pygame.transform.smoothscale(icon_surf, (icon_size - 8, icon_size - 8))
+            icon_draw_rect = icon_scaled.get_rect(center=icon_rect.center)
+            screen.blit(icon_scaled, icon_draw_rect)
 
         # Disabled tabs use a muted text color
         if is_disabled:

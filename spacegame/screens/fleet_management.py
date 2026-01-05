@@ -10,11 +10,12 @@ import pygame
 from spacegame.ui.fleet_management_ui import (
     draw_fleet_section_titles,
     compute_fleet_preview_layout,
+    draw_tier_icon_image,
 )
 from spacegame.models.units.expedition_ship import ExpeditionShip
 from spacegame.models.units.frigate import Frigate
-from spacegame.ui.ui import preview_for_unit, draw_hex, draw_triangle, draw_dalton, draw_diamond
-from spacegame.ui.fleet_management_ui import tier_to_roman
+from spacegame.ui.ui import preview_for_unit, draw_hex, draw_triangle, draw_dalton, draw_diamond, UI_BG_IMG
+from spacegame.ui.nav_ui import get_back_arrow_image
 from spacegame.config import (
     FPS,
     UI_BG_COLOR, 
@@ -163,19 +164,21 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
         assignments, ships, pool_by_id = _build_hangar_snapshot(main_player)
 
         # ------------- DRAW -------------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Title
         screen.blit(title_surf, title_rect)
 
-        # Back arrow
-        arrow_color = UI_TAB_TEXT_SELECTED
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # Back arrow - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_size = 32
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # Close X
         screen.blit(close_surf, close_rect)
@@ -216,7 +219,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
         name_x = ms_rect.left / 1.45
         name_y = ref_name_y
         screen.blit(name_surf, (name_x, name_y))
-        # Tier flag drawn to the right of the ship name (same height)
+        # Tier icon drawn to the right of the ship name (same height)
         try:
             tier_val = int(main_player.get_tier())
         except Exception:
@@ -226,10 +229,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
         flag_x = name_x * 3.58
         flag_y = name_y + (name_surf.get_height() - flag_h) // 2
         flag_rect = pygame.Rect(flag_x, flag_y, flag_w, flag_h)
-        pygame.draw.rect(screen, UI_ICON_BLUE, flag_rect)
-        tier_text = pygame.font.Font(None, 26).render(tier_to_roman(tier_val), True, UI_ICON_WHITE)
-        tier_text_rect = tier_text.get_rect(center=flag_rect.center)
-        screen.blit(tier_text, tier_text_rect)
+        draw_tier_icon_image(screen, flag_rect, tier_val)
 
         # MIDDLE: squad circles (assigned interceptors or empty)
         for i, c_rect in enumerate(circle_rects):
@@ -285,10 +285,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
                 flag_x = name_x * 1.8
                 flag_y = name_y + (name_surf.get_height() - flag_h) // 2
                 flag_rect = pygame.Rect(flag_x, flag_y, flag_w, flag_h)
-                pygame.draw.rect(screen, UI_ICON_BLUE, flag_rect)
-                tier_text = pygame.font.Font(None, 26).render(tier_to_roman(tier_val), True, UI_ICON_WHITE)
-                tier_text_rect = tier_text.get_rect(center=flag_rect.center)
-                screen.blit(tier_text, tier_text_rect)
+                draw_tier_icon_image(screen, flag_rect, tier_val)
             else:
                 pygame.draw.circle(
                     screen, (230, 230, 230), (cx, cy), circle_radius, 2
@@ -330,10 +327,7 @@ def fleet_management_screen(main_player: ExpeditionShip, player_fleet):
             flag_x = name_x * 1.297
             flag_y = name_y + (name_surf.get_height() - flag_h) // 2
             flag_rect = pygame.Rect(flag_x, flag_y, flag_w, flag_h)
-            pygame.draw.rect(screen, UI_ICON_BLUE, flag_rect)
-            tier_text = pygame.font.Font(None, 26).render(tier_to_roman(tier_val), True, UI_ICON_WHITE)
-            tier_text_rect = tier_text.get_rect(center=flag_rect.center)
-            screen.blit(tier_text, tier_text_rect)
+            draw_tier_icon_image(screen, flag_rect, tier_val)
         else:
             pygame.draw.rect(screen, (80, 80, 80), fr_rect, border_radius=10)
 

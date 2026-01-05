@@ -15,21 +15,6 @@
         "fabrication_progress": 0.0,
         "fabrication_remaining_s": 0
       }
-    },
-    {
-      "__class__": "FabricatorModule",
-      "__module__": "spacegame.models.modules.fabricatormodule",
-      "attrs": {
-        "tier": 1,
-        "capacity": 72,
-        "allowed_sections": [
-          1
-        ],
-        "module_size": 72,
-        "base_fabrication_time": 1.0,
-        "fabrication_progress": 0.0,
-        "fabrication_remaining_s": 0
-      }
     }
   ],
   "installed_internal_modules": [
@@ -49,6 +34,21 @@
           "standard_refinement_time_s": 75.0,
           "refinement_progress": 0.0,
           "refinement_remaining_s": 0
+        }
+      },
+      {
+        "__class__": "FabricatorModule",
+        "__module__": "spacegame.models.modules.fabricatormodule",
+        "attrs": {
+          "tier": 1,
+          "capacity": 72,
+          "allowed_sections": [
+            1
+          ],
+          "module_size": 72,
+          "base_fabrication_time": 1.0,
+          "fabrication_progress": 0.0,
+          "fabrication_remaining_s": 0
         }
       }
     ],

@@ -12,7 +12,7 @@ from spacegame.config import (
 )
 import math
 
-class SpaceUnit(ABC):
+class SpaceUnit(pygame.sprite.Sprite, ABC):
     # ---- Class-level defaults for player shapes ----
     DEFAULT_COLOR = (255, 200, 0)
     DEFAULT_SPEED = PLAYER_DEFAULT_SPEED
@@ -37,7 +37,9 @@ class SpaceUnit(ABC):
     def __init__(self, start_pos, ship_size=(60, 30), *, color=None, speed=None,
                  rotation_speed=None, is_enemy=False, fire_range=None,
                  fire_cooldown=None, bullet_damage=None, armor_damage=None, rarity: str = "common"):
-        
+        # initialize as sprite
+        pygame.sprite.Sprite.__init__(self)
+
         # resolve defaults from class
         self.ship_size = ship_size
         self.color = color if color is not None else self.DEFAULT_COLOR
@@ -46,7 +48,7 @@ class SpaceUnit(ABC):
         self.fire_range = float(fire_range if fire_range is not None else self.DEFAULT_FIRE_RANGE)
         self.fire_cooldown = float(fire_cooldown if fire_cooldown is not None else self.DEFAULT_FIRE_COOLDOWN)
         self.bullet_damage = float(bullet_damage if bullet_damage is not None else self.DEFAULT_BULLET_DAMAGE)
-        self.armor_damage  = float(armor_damage  if armor_damage  is not None else self.DEFAULT_ARMOR_DAMAGE)
+        self.armor_damage = float(armor_damage if armor_damage is not None else self.DEFAULT_ARMOR_DAMAGE)
 
         # base (unrotated) surface of the rectangle
         self.base_surf = pygame.Surface(ship_size, pygame.SRCALPHA)
@@ -72,6 +74,14 @@ class SpaceUnit(ABC):
         self._last_angle_for_mask = None
         self._last_mask = None
         self._last_rot_surf = None
+
+        # initialize sprite image/rect/mask
+        self.image = self.base_surf.copy()
+        self.rect = self.image.get_rect(center=(int(self.mover.world_pos.x), int(self.mover.world_pos.y)))
+        try:
+            self.mask = pygame.mask.from_surface(self.image)
+        except Exception:
+            self.mask = None
 
     # --------------- Proxy properties to mover ---------------
     @property
@@ -138,6 +148,20 @@ class SpaceUnit(ABC):
         # Return rect of given surface centered at current position (always recomputed).
         return surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
 
+    def update(self, dt: float = 0.016):
+        # Keep sprite image/rect/mask in sync with mover/rotation
+        # Update mover is done externally; here we recompute rotated image
+        surf, mask = self.get_rotated_sprite()
+        self.image = surf
+        self.rect = self.image.get_rect(center=(int(self.pos.x), int(self.pos.y)))
+        try:
+            self.mask = mask
+        except Exception:
+            try:
+                self.mask = pygame.mask.from_surface(self.image)
+            except Exception:
+                self.mask = None
+
     def collides_with(self, other) -> bool:
         # Pixel-perfect collision check between two rotated rectangles.
         surf_a, mask_a = self.get_rotated_sprite()
@@ -166,16 +190,13 @@ class SpaceUnit(ABC):
         return dist2 <= eff_r * eff_r
 
     # --------------- Drawing ---------------
-    def draw(self, surface, show_range=False):
-        surf, _ = self.get_rotated_sprite()
-        rect = self.get_sprite_rect(surf)
-        surface.blit(surf, rect.topleft)
-
-        # --- Optional: range circle (for players when selected) ---
+    def draw_overlay(self, surface, show_range=False):
+        # Draw optional range circle (for players when selected)
+        rect = self.rect
         if show_range:
             pygame.draw.circle(surface, (70, 90, 120), (int(self.pos.x), int(self.pos.y)), int(self.fire_range), 1)
-        # --- Floating health bar above the box ---
-        # Only show health/armor bars when the unit is damaged (health < max_health or armor < max_armor)
+
+        # Floating health bar above the ship
         show_bars = False
         try:
             if getattr(self, 'max_health', 0) > 0 and self.health < self.max_health:
@@ -205,7 +226,7 @@ class SpaceUnit(ABC):
             # health bar border
             pygame.draw.rect(surface, (10, 10, 10), bg_rect, 1, border_radius=3)
 
-            # --- Armor bar (if this unit has armor) ---
+            # Armor bar (if this unit has armor)
             if getattr(self, 'max_armor', 0) > 0:
                 armor_bar_y = bar_y + bar_h + 2
                 armor_bg_rect = pygame.Rect(bar_x, armor_bar_y, bar_w, bar_h)

@@ -43,6 +43,25 @@ PROJECTILE_LIFETIME = 2.0
 
 # ---- Gameplay behaviour tuning ----
 SEPARATION_ITER = 2  # How many times to push shapes apart when they overlap
+# Maximum push distance applied per separation call (to avoid large jumps)
+SEPARATION_MAX_PUSH = 2.0
+
+# Maximum allowed frame delta (seconds) before treating as a paused frame
+MAX_DT = 0.3
+
+# Projectile default damages (fallbacks)
+PROJECTILE_DEFAULT_HULL = 10.0
+PROJECTILE_DEFAULT_ARMOR = 10.0
+
+# Cinematic / UI tuning
+JUMP_CINEMATIC_BAR_FACTOR = 0.12  # fraction of screen height for cinematic bars
+JUMP_CINEMATIC_CLOSE_SPEED = 160.0  # pixels per second used to close cinematic bars
+
+# Station healing rate (HP/sec) applied while at a station
+STATION_HEALING_RATE = 15.0
+
+# Minimum selection drag size (in pixels) to count as a selection rectangle
+SELECTION_MIN_PIXELS = 5
 
 # ---- UI Colors ----
 UI_BG_COLOR           = (4, 18, 35)

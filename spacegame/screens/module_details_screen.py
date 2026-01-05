@@ -17,8 +17,9 @@ from spacegame.config import (
 from spacegame.models.modules.fabricatormodule import FabricatorModule
 from spacegame.models.modules.refinerymodule import RefineryModule
 from spacegame.core.modules_manager import manager as modules_manager
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
-from spacegame.ui.ui import draw_plus_circle, draw_corner_frame
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
+from spacegame.ui.ui import UI_BG_IMG
+from spacegame.ui.ui import draw_plus_circle, drawCornerFrame
 
 
 def module_details_screen(main_player, player_fleet, initial_section=1, installed_sections=None, selected_module=None, selected_module_index=0):
@@ -61,9 +62,10 @@ def module_details_screen(main_player, player_fleet, initial_section=1, installe
 
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
+    icon_filenames = ["Nav_Icon_Inventory.png", "Nav_Icon_Bridge.png", "Nav_Icon_Fabricator.png", "Nav_Icon_Refinery.png", "Nav_Icon_InternalModules.png"]
     selected_tab = 4  # INTERNAL MODULES selected
 
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     # Grey-out/selectability: disable FABRICATION/REFINING when none equipped
     disabled_labels = set()
     if not modules_manager.get_fabricators():
@@ -269,7 +271,10 @@ def module_details_screen(main_player, player_fleet, initial_section=1, installe
                 # with the material. No per-card clicks are handled here.
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Nav band coordinates
         pygame.draw.rect(
@@ -296,7 +301,14 @@ def module_details_screen(main_player, player_fleet, initial_section=1, installe
             (back_arrow_rect.right, back_arrow_rect.top),
             (back_arrow_rect.right, back_arrow_rect.bottom),
         ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # back arrow - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
+        else:
+            pygame.draw.polygon(screen, arrow_color, arrow_points)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -522,7 +534,7 @@ def module_details_screen(main_player, player_fleet, initial_section=1, installe
         big_corner_len = 28
         big_corner_thick = 4
         corner_color = UI_TAB_TEXT_SELECTED
-        draw_corner_frame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick)
+        drawCornerFrame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick)
 
         # Draw right panel and DISMOUNT button (red) — informational panel on
         # the right side reusing the same positioning as fabrication details.

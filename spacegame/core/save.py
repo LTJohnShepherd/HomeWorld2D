@@ -144,8 +144,38 @@ def save_game(owner) -> None:
             }
 
         path = _save_path()
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
+        # Write atomically: write to a temp file then replace
+        tmp_path = path + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+                try:
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                except Exception:
+                    pass
+            # Replace the target file atomically
+            try:
+                os.replace(tmp_path, path)
+            except Exception:
+                # fallback to rename on older systems
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+                try:
+                    os.rename(tmp_path, path)
+                except Exception:
+                    # last resort: write directly
+                    with open(path, "w", encoding="utf-8") as fh:
+                        json.dump(data, fh, indent=2)
+        except Exception:
+            # If atomic write failed, try a direct write as fallback
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, indent=2)
+            except Exception:
+                pass
     except Exception:
         # never crash game due to save errors
         return

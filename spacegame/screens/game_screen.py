@@ -1,5 +1,6 @@
 import pygame
 import random
+import json
 from pygame.math import Vector2
 from spacegame.models.units.fleet_unit import SpaceUnit
 from spacegame.models.units.pirate_frigate import PirateFrigate
@@ -14,6 +15,9 @@ from spacegame.models.asteroids.asteroidc import MineableAsteroidC
 from spacegame.models.asteroids.asteroidm import MineableAsteroidM
 from spacegame.core.mover import Mover
 from spacegame.core.projectile import Projectile
+from spacegame.core import effects
+from spacegame.core.utils import spawn_enemy_wave, handle_auto_fire, handle_projectile_collisions
+from spacegame.core import events
 from spacegame.ui.hud_ui import HudUI
 from spacegame.ui.ui import Button, draw_triangle, draw_diamond, draw_dalton, draw_hex, OREM_PREVIEW_IMG
 from spacegame.core.fabrication import get_fabrication_manager
@@ -27,43 +31,20 @@ from spacegame.config import (
     ENEMY_SPAWN_INTERVAL,
     ENEMY_SPAWN_COUNT,
 )
+from spacegame.config import (
+    MAX_DT,
+    JUMP_CINEMATIC_BAR_FACTOR,
+    JUMP_CINEMATIC_CLOSE_SPEED,
+    STATION_HEALING_RATE,
+    SELECTION_MIN_PIXELS,
+)
 from spacegame.screens.internal_screen import internal_screen
+from spacegame.screens.galactic_map_screen import galactic_map_screen, _init_galactic_map_cache, preload_map_images
+from spacegame.screens.star_system_map import star_system_map
+import threading
+from spacegame.screens.loading_screen import loading_screen
 
-def update_projectiles(projectiles, player_fleet, enemy_fleet, dt):
-    """Update projectiles and apply hit damage, returning the filtered list."""
-    for b in projectiles:
-        b.update(dt)
-        if not getattr(b, "is_active", False):
-            continue
 
-        # When owner_is_enemy=True, bullets fly from enemies toward player fleet.
-        if getattr(b, "owner_is_enemy", False):
-            hit = None
-            for p in player_fleet:
-                if b.collides_with_shape(p):
-                    hit = p
-                    break
-            if hit is not None:
-                # Apply armor damage first, if the ship has armor remaining.
-                if getattr(hit, "max_armor", 0) > 0 and getattr(hit, "armor", 0) > 0:
-                    hit.take_armor_damage(b.armor_damage)
-                else:
-                    hit.take_damage(b.hull_damage)
-                b.is_active = False
-        else:
-            hit = None
-            for e in enemy_fleet:
-                if b.collides_with_shape(e):
-                    hit = e
-                    break
-            if hit is not None:
-                if getattr(hit, "max_armor", 0) > 0 and getattr(hit, "armor", 0) > 0:
-                    hit.take_armor_damage(b.armor_damage)
-                else:
-                    hit.take_damage(b.hull_damage)
-                b.is_active = False
-
-    return [b for b in projectiles if getattr(b, "is_active", False)]
 
 
 def handle_collisions(player_fleet, enemy_fleet, dt):
@@ -105,6 +86,9 @@ def handle_collisions(player_fleet, enemy_fleet, dt):
                     e.take_damage(dmg)
 
 
+# Helper functions moved to `spacegame.core.utils` to reduce screen complexity
+
+
 def draw_hex_button(surface, button, font, base_color, hover_color, header_text):
     rect = button.rect
     mouse_pos = pygame.mouse.get_pos()
@@ -121,13 +105,268 @@ def draw_hex_button(surface, button, font, base_color, hover_color, header_text)
     surface.blit(label, label_rect)
 
 
+def get_location_data(main_player):
+    """Load location data from star_systems.json and return the current location visitable data."""
+    try:
+        with open('spacegame/data/star_systems.json', 'r', encoding='utf-8') as fh:
+            systems_data = json.load(fh)
+    except Exception:
+        return None
+    
+    location_system = getattr(main_player, 'location_system', 'Lazarus')
+    location_area = getattr(main_player, 'location_area', 'Lazarus Station')
+    
+    # Find the system
+    key_variants = [str(location_system), str(location_system).title(), str(location_system).upper()]
+    sys_entry = None
+    for k in key_variants:
+        if k in systems_data:
+            sys_entry = systems_data[k]
+            break
+    
+    if not sys_entry:
+        return None
+    
+    # Find the visitable within the system
+    visitables = sys_entry.get('visitables', [])
+    for v in visitables:
+        if v.get('name') == location_area:
+            return v
+    
+    return None
+
+
+def spawn_asteroids_for_location(location_data):
+    """Return a list of asteroids appropriate for the given location with random positions and counts."""
+    if location_data is None or location_data.get('type') != 'Asteroids':
+        return []
+    
+    tier = location_data.get('tier', 0)
+    ore_type = location_data.get('ore', 'M')
+    purity = location_data.get('purity', 0.5)
+    
+    asteroids = []
+    
+    # Generate random spawn area (roughly in visible area with padding)
+    spawn_margin = 100
+    max_x = SCREEN_WIDTH - spawn_margin
+    max_y = SCREEN_HEIGHT - spawn_margin
+    min_x = spawn_margin
+    min_y = spawn_margin
+    
+    # Tier 0: Only M asteroids (random count 3-6)
+    if tier == 0:
+        count = random.randint(3, 6)
+        for _ in range(count):
+            pos = (random.randint(min_x, max_x), random.randint(min_y, max_y))
+            asteroids.append(MineableAsteroidM(pos, purity=purity))
+    
+    # Tier 1: A, B, C asteroids with varied purity based on ore type
+    elif tier == 1:
+        ore_purities = {
+            'A': 0.8 if ore_type == 'A' else 0.3,
+            'B': 0.8 if ore_type == 'B' else 0.3,
+            'C': 0.8 if ore_type == 'C' else 0.3,
+        }
+        
+        # Random count 5-10 asteroids
+        count = random.randint(5, 10)
+        asteroid_types = [MineableAsteroidA, MineableAsteroidB, MineableAsteroidC]
+        ore_keys = ['A', 'B', 'C']
+        
+        for _ in range(count):
+            pos = (random.randint(min_x, max_x), random.randint(min_y, max_y))
+            asteroid_class = random.choice(asteroid_types)
+            ore_key = ore_keys[asteroid_types.index(asteroid_class)]
+            purity_val = ore_purities.get(ore_key, 0.5)
+            asteroids.append(asteroid_class(pos, purity=purity_val))
+    
+    return asteroids
+
+
+def play_jump_cinematic(main_player, player_fleet, prev_system, new_system, prev_area, new_area):
+    """Play a blocking cinematic for jumps:
+    - recall all deployed ships to mothership
+    - animate black bars closing
+    - show galactic map movement if changing systems
+    - show star system entry animation for fleet icon
+    This function is intentionally blocking and disables player input while active.
+    """
+    import time
+    screen = pygame.display.get_surface()
+    if screen is None:
+        return
+
+    clock = pygame.time.Clock()
+    inv = getattr(main_player, 'inventory_manager', None)
+    hangar = getattr(inv, 'hangar', None) if inv is not None else None
+
+    # Issue recall for all deployed ships tracked by hangar
+    if hangar is not None:
+        for craft in list(hangar.deployed):
+            try:
+                craft.recalling = True
+            except Exception:
+                pass
+            # ensure craft is present in active player_fleet
+            if craft not in player_fleet:
+                player_fleet.append(craft)
+
+    # Animate black bars while ships fly home
+    # Bars start off-screen and slide into position from above/below.
+    target_h = max(24, int(SCREEN_HEIGHT * JUMP_CINEMATIC_BAR_FACTOR))
+    # positions: top_y moves from -target_h -> 0; bot_y moves from SCREEN_HEIGHT -> SCREEN_HEIGHT-target_h
+    top_y = -target_h
+    bot_y = SCREEN_HEIGHT
+    # close_speed controls how many pixels per second the bars move; keep reasonable default
+    close_speed = float(JUMP_CINEMATIC_CLOSE_SPEED)
+
+    # We'll manually update recalled ships here while animating bars.
+    recall_timeout = 10.0
+    elapsed = 0.0
+
+    # Compute deterministic duration to fully close bars (distance = target_h for each bar)
+    close_duration = target_h / close_speed if close_speed > 0 else 0.0
+    anim_elapsed = 0.0
+
+    while True:
+        dt = clock.tick(60) / 1000.0
+        elapsed += dt
+        anim_elapsed += dt
+
+        # update positions of recalling crafts
+        if hangar is not None:
+            for craft in list(hangar.deployed):
+                # steer toward mothership
+                try:
+                    craft.mover.set_target(main_player.pos)
+                    craft.mover.update(dt)
+                    # when close enough, dock
+                    if (craft.pos - main_player.pos).length() < 50:
+                        # remove from active list and inform hangar
+                        try:
+                            if craft in player_fleet:
+                                player_fleet.remove(craft)
+                        except Exception:
+                            pass
+                        try:
+                            inv.hangar.on_recalled(craft)
+                        except Exception:
+                            pass
+                        try:
+                            # remove sprite from any sprite groups so it no longer draws
+                            if isinstance(craft, pygame.sprite.Sprite):
+                                craft.kill()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        # Animate black bars sliding into place over the computed duration
+        if close_duration > 0:
+            frac = min(1.0, anim_elapsed / close_duration)
+            top_y = -target_h + target_h * frac
+            bot_y = SCREEN_HEIGHT - target_h * frac
+
+        # Draw current frame behind bars (simple snapshot)
+        try:
+            bg = screen.copy()
+            screen.blit(bg, (0, 0))
+        except Exception:
+            pass
+
+        # draw bars at current animated positions
+        try:
+            pygame.draw.rect(screen, (0, 0, 0), (0, int(top_y), SCREEN_WIDTH, int(target_h)))
+            pygame.draw.rect(screen, (0, 0, 0), (0, int(bot_y), SCREEN_WIDTH, int(target_h)))
+        except Exception:
+            # fallback to simple full-edge bars
+            pygame.draw.rect(screen, (0, 0, 0), (0, 0, SCREEN_WIDTH, int(target_h)))
+            pygame.draw.rect(screen, (0, 0, 0), (0, SCREEN_HEIGHT - int(target_h), SCREEN_WIDTH, int(target_h)))
+        pygame.display.flip()
+
+        # Exit condition: animation finished AND no more deployed ships (or timeout)
+        deployed_empty = (hangar is None) or (len(hangar.deployed) == 0)
+        if (anim_elapsed >= close_duration) and (deployed_empty or elapsed > recall_timeout):
+            break
+
+    # Ensure bars fully closed briefly (hold their final positions)
+    end_wait = 0.25
+    wait_elapsed = 0.0
+    while wait_elapsed < end_wait:
+        dt = clock.tick(60) / 1000.0
+        wait_elapsed += dt
+        try:
+            pygame.draw.rect(screen, (0, 0, 0), (0, 0, SCREEN_WIDTH, int(target_h)))
+            pygame.draw.rect(screen, (0, 0, 0), (0, SCREEN_HEIGHT - int(target_h), SCREEN_WIDTH, int(target_h)))
+        except Exception:
+            pass
+        pygame.display.flip()
+
+    # Transition: if system changed, show galactic map with a fleet move animation
+    try:
+        # Annotate main_player so map screens draw the cinematic bars overlay
+        try:
+            setattr(main_player, '_cinematic_bars', {
+                'target_h': int(target_h),
+                'top_y': 0,
+                'bot_y': SCREEN_HEIGHT - int(target_h),
+                'close_speed': close_speed,
+            })
+        except Exception:
+            pass
+        if prev_system and new_system and prev_system != new_system:
+            # annotate main_player so galactic_map_screen picks up animation request
+            try:
+                setattr(main_player, '_fleet_move', (prev_system, new_system))
+                # request the galactic map to auto-close after the animation
+                setattr(main_player, '_fleet_move_auto', True)
+            except Exception:
+                pass
+            from spacegame.screens.galactic_map_screen import galactic_map_screen as _gms
+            _gms(main_player, player_fleet)
+        # After galactic map (or if same system), show star system map and animate fleet entry
+        try:
+            # annotate main_player so star_system_map can animate entry
+            # include auto_return so the map closes automatically after the animation
+            entry = {'from_area': prev_area, 'auto_return': True} if prev_area else {'from_outside': True, 'auto_return': True}
+            setattr(main_player, '_fleet_entry', entry)
+        except Exception:
+            pass
+        from spacegame.screens.star_system_map import star_system_map as _ssm
+        _ssm(main_player, player_fleet, system_name=new_system)
+
+        # Return the cinematic bars data to the caller so the gameplay loop can animate them off
+        try:
+            bars = getattr(main_player, '_cinematic_bars', None)
+            return bars
+        except Exception:
+            return None
+    except Exception:
+        pass
+    return None
+
+
 def run_game():
     WIDTH, HEIGHT = SCREEN_WIDTH, SCREEN_HEIGHT
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("SpaceGame")
+    
+    # Pre-initialize galactic map resources and system previews in background for instant transitions
+    _init_galactic_map_cache()
+    try:
+        # Start preloading on a background thread so the main loop isn't blocked.
+        t = threading.Thread(target=preload_map_images, daemon=True)
+        t.start()
+        # Show an animated loading screen while preload runs; if user quits, propagate exit
+        res = loading_screen(t)
+        if res == "exit":
+            return "exit"
+    except Exception:
+        pass
 
     # --- Load skybox background ---
-    background_img = pygame.image.load(IMAGES_DIR + "/Skybox.png").convert()
+    background_img = pygame.image.load(IMAGES_DIR + "/nebula_15.png").convert()
     background_img = pygame.transform.smoothscale(background_img, (WIDTH, HEIGHT))
 
     clock = pygame.time.Clock()
@@ -142,47 +381,249 @@ def run_game():
 
     # --- Main player (ExpeditionShip with hangar) ---
     main_player = ExpeditionShip((400, 300))
+    # Default starting location for the player's fleet (safe starter system)
+    try:
+        main_player.location_system = getattr(main_player, 'location_system', None) or 'Lazarus'
+        main_player.location_area = getattr(main_player, 'location_area', None) or 'Lazarus Station'
+    except Exception:
+        main_player.location_system = 'Lazarus'
+        main_player.location_area = 'Lazarus Station'
 
     player_fleet = [
         main_player,
         Frigate((500, 400))
         ]
 
-    # Spawn demo mineable asteroids (purity is 0.5 => 50%)
-    asteroids = [
-        MineableAsteroidA((520, 250), purity=0.5),
-        MineableAsteroidB((680, 250), purity=0.5),
-        MineableAsteroidC((600, 330), purity=0.5),
-        MineableAsteroidM((600, 150), purity=0.5),
-    ]
+    # Sprite groups for bulk updates/draws
+    player_group = pygame.sprite.Group()
+    enemy_group = pygame.sprite.Group()
+    for s in player_fleet:
+        if isinstance(s, pygame.sprite.Sprite):
+            player_group.add(s)
 
-    enemy_fleet = [
-        #PirateFrigate((100, 100)),
-        PirateFrigate((700, 120)),
-        #PirateFrigate((120, 500)),
-    ]
+    # Single projectile group for all projectiles
+    projectile_group = pygame.sprite.Group()
+
+    # Load location data and spawn appropriate asteroids/enemies based on location type
+    location_data = get_location_data(main_player)
+    asteroids = spawn_asteroids_for_location(location_data)
+    # asteroid sprite group
+    asteroid_group = pygame.sprite.Group()
+    for a in asteroids:
+        if isinstance(a, pygame.sprite.Sprite):
+            asteroid_group.add(a)
+
+    # Only spawn enemies if at an asteroid location (not at a station)
+    enemy_fleet = []
+    if location_data and location_data.get('type') == 'Asteroids':
+        enemy_fleet = [
+            PirateFrigate((700, 120)),
+        ]
+    
+    for e in enemy_fleet:
+        if isinstance(e, pygame.sprite.Sprite):
+            enemy_group.add(e)
 
     # Spawn timer for enemy waves
     spawn_timer = ENEMY_SPAWN_INTERVAL
-
-    projectiles = []
+    # Track current system name so we can detect inter-system jumps
+    current_system_name = getattr(main_player, 'location_system', None)
 
     is_selecting = False # Flag that indicates if the player is currently dragging a selection box with the mouse
     selection_start = (0, 0) # The starting mouse position where the left button was first pressed (selection begins here)
     selection_rect = pygame.Rect(0, 0, 0, 0) # ExpeditionShip used to visually and logically represent the drag-selection area
 
+    # --- HUD Icons (top right: Map, Sys, Battle) ---
+    hud_icon_cache = {}
+    hud_icon_names = ['Map', 'Sys', 'Battle']
+    hud_selected_index = 2  # Track which icon is selected (0=Map, 1=Sys, 2=Battle); default leftmost
+    
+    def load_hud_icon(name: str, selected: bool = False) -> pygame.Surface | None:
+        """Load a HUD icon from the previews folder with caching."""
+        suffix = "Selected" if selected else "Unselected"
+        filename = f"HudIcon_{name}_{suffix}.png"
+        cache_key = f"{name}_{suffix}"
+        
+        if cache_key not in hud_icon_cache:
+            try:
+                icon = pygame.image.load(f"{PREVIEWS_DIR}/{filename}").convert_alpha()
+                hud_icon_cache[cache_key] = icon
+            except Exception:
+                hud_icon_cache[cache_key] = None
+        
+        return hud_icon_cache.get(cache_key)
+    
+    def load_hud_separator() -> pygame.Surface | None:
+        """Load the HUD separator image."""
+        if 'separator' not in hud_icon_cache:
+            try:
+                sep = pygame.image.load(f"{PREVIEWS_DIR}/HudIcon_Separator.png").convert_alpha()
+                hud_icon_cache['separator'] = sep
+            except Exception:
+                hud_icon_cache['separator'] = None
+        
+        return hud_icon_cache.get('separator')
+    
+    # Pre-load all HUD icons
+    for name in hud_icon_names:
+        load_hud_icon(name, selected=False)
+        load_hud_icon(name, selected=True)
+    load_hud_separator()
+
     while True:
         dt = clock.tick(FPS) / 1000.0
         # Ignore huge dt spikes (e.g. when coming back from INTERNAL screen)
-        if dt > 0.3:      # threshold in seconds, tweak if you want
-            dt = 0.0      # treat that frame as “paused”
+        if dt > MAX_DT:      # threshold in seconds, tweak if you want
+            dt = 0.0      # treat that frame as “paused"        
+        # Reload location data each frame to stay in sync with player's current location
+        # This ensures asteroids/enemies spawn correctly when returning from star system map
+        new_location_data = get_location_data(main_player)
+        
+        # If location changed, play cinematic then respawn asteroids
+        if new_location_data != location_data:
+            # Remember previous system/area for animation decisions
+            prev_system = current_system_name
+            prev_area = None
+            if location_data is not None:
+                prev_area = location_data.get('name')
+
+            # Update tracked system name now (main_player.location_system is already set by map UI)
+            current_system_name = getattr(main_player, 'location_system', None)
+
+            # Before playing the jump cinematic: clear active projectiles and visual effects
+            try:
+                projectile_group.empty()
+            except Exception:
+                pass
+            try:
+                # remove any lingering particles/explosions/smoke
+                effects.effects_group.empty()
+            except Exception:
+                pass
+
+            # Play the jump cinematic which will recall deployed ships and run map animations
+            bars = None
+            try:
+                bars = play_jump_cinematic(main_player, player_fleet, prev_system, current_system_name, prev_area, getattr(main_player, 'location_area', None))
+            except Exception:
+                # Fail gracefully; continue without cinematic
+                bars = None
+
+            # If cinematic provided bars data, animate them opening while drawing gameplay
+            if bars:
+                try:
+                    th = int(bars.get('target_h') or max(24, int(SCREEN_HEIGHT * 0.12)))
+                    speed = float(bars.get('close_speed') or 160.0)
+                    tdur = th / speed if speed > 0 else 0.0
+                    open_clock = pygame.time.Clock()
+                    open_elapsed = 0.0
+                    while open_elapsed < tdur:
+                        dt_o = open_clock.tick(60) / 1000.0
+                        open_elapsed += dt_o
+                        frac = min(1.0, open_elapsed / tdur) if tdur > 0 else 1.0
+                        top_y = 0 - th * frac
+                        bot_y = (SCREEN_HEIGHT - th) + th * frac
+
+                        # Draw gameplay frame underneath
+                        try:
+                            screen = pygame.display.get_surface()
+                            # background_img is available in this scope
+                            try:
+                                screen.blit(background_img, (0, 0))
+                            except Exception:
+                                screen.fill((6, 10, 20))
+                            try:
+                                asteroid_group.draw(screen)
+                            except Exception:
+                                pass
+                            try:
+                                enemy_group.draw(screen)
+                            except Exception:
+                                pass
+                            try:
+                                projectile_group.draw(screen)
+                            except Exception:
+                                pass
+                            try:
+                                player_group.draw(screen)
+                            except Exception:
+                                pass
+                            try:
+                                hangar_interface.draw(screen, main_player, player_fleet)
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+
+                        # Draw bars on top
+                        try:
+                            pygame.draw.rect(screen, (0, 0, 0), (0, int(top_y), SCREEN_WIDTH, int(th)))
+                            pygame.draw.rect(screen, (0, 0, 0), (0, int(bot_y), SCREEN_WIDTH, int(th)))
+                        except Exception:
+                            pass
+                        pygame.display.flip()
+
+                    # cleanup annotation
+                    try:
+                        delattr(main_player, '_cinematic_bars')
+                    except Exception:
+                        try:
+                            del main_player._cinematic_bars
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # Now update in-game location and respawn content for the new location
+            location_data = new_location_data
+            # Clear old asteroids
+            asteroid_group.empty()
+            asteroids = spawn_asteroids_for_location(location_data)
+            for a in asteroids:
+                if isinstance(a, pygame.sprite.Sprite):
+                    asteroid_group.add(a)
+
+            # Clear all enemies when location changes
+            enemy_fleet = []
+            enemy_group.empty()
+
+            # Restart enemy spawn timer when location changes
+            spawn_timer = ENEMY_SPAWN_INTERVAL
+        
+        # Heal player fleet if at a station
+        if location_data and location_data.get('type') == 'Station':
+            healing_rate = float(STATION_HEALING_RATE)  # HP per second
+            for ship in player_fleet:
+                if ship.health < ship.max_health:
+                    ship.heal(healing_rate * dt)
+                if ship.armor < ship.max_armor:
+                    ship.set_armor(ship.armor + healing_rate * dt)
             
         for event in pygame.event.get():
+            # Handle custom save event posted by InventoryManager and other systems
+            try:
+                if event.type == events.SAVE_GAME_EVENT:
+                    try:
+                        from spacegame.core import save as _save
+                        owner = getattr(event, 'owner', None)
+                        if owner is None:
+                            owner = main_player
+                        _save.save_game(owner)
+                    except Exception:
+                        pass
+                    # do not process this event further
+                    continue
+            except Exception:
+                # if events module is not available or event doesn't have type, ignore
+                pass
+
             if event.type == pygame.QUIT:
                 return "exit" # "exit"
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 return "main_menu" # "main_menu"
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                clicked_ui = False  # Initialize click tracking
+                
                 # First: fleet management button
                 if fleet_btn.handle_event(event):
                     res = internal_screen(main_player, player_fleet)
@@ -193,8 +634,52 @@ def run_game():
                     # after returning, skip further handling of this click
                     continue
 
+                # Check for HUD icon clicks (top right)
+                hud_icon_y = 20
+                hud_icon_spacing = 140
+                hud_start_x = WIDTH - 50
+                
+                for i, name in enumerate(hud_icon_names):
+                    x = hud_start_x - i * hud_icon_spacing
+                    # Estimate rect size based on typical HUD icon size
+                    rect = pygame.Rect(x - 40, hud_icon_y, 80, 80)
+                    
+                    if rect.collidepoint(event.pos):
+                        # Icon was clicked
+                        # Leftmost icon (i==0) opens the Galactic Map
+                        if i == 0:
+                            try:
+                                res = galactic_map_screen(main_player, player_fleet)
+                                if res == "exit":
+                                    return "exit"
+                            except Exception:
+                                hud_selected_index = 2
+                            clicked_ui = True
+                            break
+                        # Middle icon (i==1) opens the Star System Map for current fleet location
+                        if i == 1:
+                            try:
+                                current_system = getattr(main_player, 'location_system', None) or 'Lazarus'
+                                res = star_system_map(main_player, player_fleet, system_name=current_system)
+                                if res == "exit":
+                                    return "exit"
+                            except Exception:
+                                hud_selected_index = 2
+                            clicked_ui = True
+                            break
+                        else:
+                            hud_selected_index = i
+                            clicked_ui = True
+                            break
+
                 # Then let the hangar UI handle deploy/recall buttons and preview toggles.
-                clicked_ui = hangar_interface.handle_mouse_button_down(event.pos, main_player, player_fleet)
+                if not clicked_ui:
+                    clicked_ui = hangar_interface.handle_mouse_button_down(event.pos, main_player, player_fleet)
+                    # If the hangar deployed a new craft it will be appended to player_fleet;
+                    # ensure it's also added to the sprite group so it gets drawn/updated.
+                    for s in player_fleet:
+                        if isinstance(s, pygame.sprite.Sprite) and s not in player_group:
+                            player_group.add(s)
 
                 # If the HUD row was clicked but the handler somehow did not claim the event,
                 # treat clicks inside the HUD area as consumed to avoid accidentally
@@ -259,7 +744,7 @@ def run_game():
                 is_selecting = False # Stop drag-selection when the left mouse button is released
                 rect = selection_rect.copy()
                 rect.normalize() # Ensure the rectangle has positive width and height regardless of drag direction
-                if rect.width > 5 and rect.height > 5:
+                if rect.width > SELECTION_MIN_PIXELS and rect.height > SELECTION_MIN_PIXELS:
                     for spaceship in player_fleet:
                         spaceship.selected = rect.collidepoint(spaceship.pos) # Mark shapes as selected if their position is inside the final selection rectangle
             
@@ -337,6 +822,12 @@ def run_game():
             if inv is None or getattr(inv, 'hangar', None) is None:
                 raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
             inv.hangar.on_recalled(craft)
+            try:
+                # ensure sprite is removed from any drawing groups
+                if isinstance(craft, pygame.sprite.Sprite):
+                    craft.kill()
+            except Exception:
+                pass
         # Enemies: approach to within range, then hold
         for e in enemy_fleet:
             if player_fleet:
@@ -348,66 +839,40 @@ def run_game():
                     e.mover.set_target(e.pos)  # hold & shoot
             e.mover.update(dt)
 
+        # Sync sprite images/rects to mover state
+        try:
+            player_group.update(dt)
+        except Exception:
+            pass
+        try:
+            enemy_group.update(dt)
+        except Exception:
+            pass
+
         # --- Enemy spawning (timed waves) ---
         if ENEMY_SPAWN_INTERVAL > 0:
             spawn_timer -= dt
             if spawn_timer <= 0:
                 spawn_timer = ENEMY_SPAWN_INTERVAL
-                # spawn N pirates at random edge positions
-                for _ in range(max(1, ENEMY_SPAWN_COUNT)):
-                    # choose an edge: 0=top,1=right,2=bottom,3=left
-                    edge = random.randrange(4)
-                    margin = 40
-                    if edge == 0:  # top
-                        x = random.uniform(margin, WIDTH - margin)
-                        y = -random.uniform(20, 120)
-                    elif edge == 1:  # right
-                        x = WIDTH + random.uniform(20, 120)
-                        y = random.uniform(margin, HEIGHT - margin)
-                    elif edge == 2:  # bottom
-                        x = random.uniform(margin, WIDTH - margin)
-                        y = HEIGHT + random.uniform(20, 120)
-                    else:  # left
-                        x = -random.uniform(20, 120)
-                        y = random.uniform(margin, HEIGHT - margin)
+                # Only spawn enemies if at an asteroid location
+                if location_data and location_data.get('type') == 'Asteroids':
+                    # spawn N pirates at random edge positions via helper
+                    spawn_enemy_wave(WIDTH, HEIGHT, location_data, enemy_group, enemy_fleet, count=ENEMY_SPAWN_COUNT)
 
-                    new_enemy = PirateFrigate((x, y))
-                    enemy_fleet.append(new_enemy)
+        # --- Auto-fire: both sides (delegated to helper) ---
+        handle_auto_fire(player_fleet, enemy_fleet, projectile_group, owner_is_enemy=False, color=(255,240,120), speed_factor=1.0)
+        handle_auto_fire(enemy_fleet, player_fleet, projectile_group, owner_is_enemy=True, color=(255,120,120), speed_factor=0.9)
 
-        # --- Auto-fire: both sides ---
-        for p in player_fleet:
-            if not enemy_fleet:
-                break
-            # Skip firing if unit has 0 damage (e.g., ResourceCollector)
-            if p.bullet_damage <= 0:
-                continue
-            nearest = min(enemy_fleet, key=lambda e: (e.pos - p.pos).length_squared())
-            if p.is_target_in_range(nearest) and p.ready_to_fire():
-                dirv = (nearest.pos - p.pos)
-                projectiles.append(Projectile(p.pos, dirv,
-                                        hull_damage=p.bullet_damage,
-                                        armor_damage=p.armor_damage,
-                                        color=(255,240,120), owner_is_enemy=False))
-                p.reset_cooldown()
+        # --- Update projectiles (group) & handle hits ---
+        projectile_group.update(dt)
+        # update effects (particles, explosions)
+        try:
+            effects.effects_group.update(dt)
+        except Exception:
+            pass
 
-        for e in enemy_fleet:
-            if not player_fleet:
-                break
-            # Skip firing if unit has 0 damage (shouldn't happen with enemies, but safe)
-            if e.bullet_damage <= 0:
-                continue
-            nearest = min(player_fleet, key=lambda p: (p.pos - e.pos).length_squared())
-            if e.is_target_in_range(nearest) and e.ready_to_fire():
-                dirv = (nearest.pos - e.pos)
-                projectiles.append(Projectile(e.pos, dirv,
-                                        hull_damage=e.bullet_damage,
-                                        armor_damage=e.armor_damage,
-                                        color=(255,120,120), owner_is_enemy=True,
-                                        speed=Projectile.SPEED*0.9))
-                e.reset_cooldown()
-
-                # --- Update projectiles & handle hits ---
-        projectiles = update_projectiles(projectiles, player_fleet, enemy_fleet, dt)
+        # --- Update projectiles (group) & handle hits ---
+        handle_projectile_collisions(projectile_group, player_fleet, enemy_fleet)
 
 
 
@@ -417,14 +882,31 @@ def run_game():
             if isinstance(s, (Interceptor, ResourceCollector, PlasmaBomber)) and s.health <= 0.0
         ]
         for craft in dead_crafts:
-            # Notify Hangar (via InventoryManager) so it can mark the pool entry dead and clear any slot / assignment.
             inv = getattr(main_player, 'inventory_manager', None)
             if inv is None or getattr(inv, 'hangar', None) is None:
                 raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
             inv.hangar.on_interceptor_dead(craft)
+            # handled above; asteroid drawing happens in the main draw section
+
+        prev_enemies = list(enemy_fleet)
+        prev_players = list(player_fleet)
 
         enemy_fleet = [s for s in enemy_fleet if s.health > 0.0]
         player_fleet = [s for s in player_fleet if s.health > 0.0]
+
+        # remove sprites for any ships that were filtered out
+        for e in prev_enemies:
+            if e not in enemy_fleet:
+                try:
+                    e.kill()
+                except Exception:
+                    pass
+        for p in prev_players:
+            if p not in player_fleet:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
 
         # --- End game when ExpeditionShip dies ---
         if main_player.health <= 0:
@@ -436,17 +918,31 @@ def run_game():
 
 # --- Draw ---
         screen.blit(background_img, (0, 0))
-        # Draw asteroids under ships
-        for a in asteroids:
+        # Draw asteroids under ships (prefer sprite group draw)
+        try:
+            asteroid_group.draw(screen)
+        except Exception:
+            for a in asteroids:
                 a.draw(screen)
 
-        for spaceship in player_fleet:
-            spaceship.draw(screen, show_range=spaceship.selected)
-        for enemy in enemy_fleet:
-            enemy.draw(screen)
+        # Draw unit sprites (images)
+        try:
+            enemy_group.draw(screen)
+        except Exception:
+            pass
+        try:
+            player_group.draw(screen)
+        except Exception:
+            pass
         
         for spaceship in player_fleet:
             # diamond over frigate with same relative scale as ExpeditionShip hex
+            # draw overlays (health bars / range)
+            try:
+                spaceship.draw_overlay(screen, show_range=spaceship.selected)
+            except Exception:
+                pass
+
             if isinstance(spaceship, Frigate):
                 ship_w, ship_h = spaceship.ship_size
                 draw_diamond(
@@ -484,8 +980,21 @@ def run_game():
         moth_center = (main_player.pos.x, main_player.pos.y)
         draw_hex(screen, moth_center, 70, 32, (80, 255, 190), 3)
 
-        for b in projectiles:
-            b.draw(screen)
+        # Draw projectiles
+        projectile_group.draw(screen)
+
+        # Draw effects (particles/explosions) on top of projectiles
+        try:
+            effects.effects_group.draw(screen)
+        except Exception:
+            pass
+
+        # Draw enemy overlays (health bars / ranges)
+        for enemy in enemy_fleet:
+            try:
+                enemy.draw_overlay(screen, show_range=False)
+            except Exception:
+                pass
 
         if is_selecting:
             temp = selection_rect.copy()
@@ -494,6 +1003,32 @@ def run_game():
 
         # --- Draw hangar previews & deploy/recall buttons ---
         hangar_interface.draw(screen, main_player, player_fleet)
+
+        # --- Draw HUD Icons (top right: Map, Sys, Battle) ---
+        hud_icon_y = 20
+        hud_icon_spacing = 140
+        hud_start_x = WIDTH - 50
+        
+        for i, name in enumerate(hud_icon_names):
+            x = hud_start_x - i * hud_icon_spacing
+            
+            # Draw separator (between icons, not before first or after last)
+            if i > 0:
+                separator = load_hud_separator()
+                if separator:
+                    sep_scaled = pygame.transform.smoothscale(separator, (20, 10))
+                    sep_rect = sep_scaled.get_rect(center=(x + 70, hud_icon_y + 40))
+                    screen.blit(sep_scaled, sep_rect)
+            
+            # Draw the icon (selected or unselected based on hud_selected_index)
+            is_selected = (i == hud_selected_index)
+            icon = load_hud_icon(name, selected=is_selected)
+            
+            if icon:
+                # Scale icon to reasonable size
+                icon_scaled = pygame.transform.smoothscale(icon, (80, 80))
+                icon_rect = icon_scaled.get_rect(topleft=(x - 40, hud_icon_y))
+                screen.blit(icon_scaled, icon_rect)
 
         # --- Draw fleet management ("INTERNAL") button as hex ---
         draw_hex_button(screen, fleet_btn, fleet_btn_font,

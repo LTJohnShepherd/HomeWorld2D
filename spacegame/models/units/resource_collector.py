@@ -1,6 +1,7 @@
 import pygame
 from spacegame.models.units.fleet_unit import SpaceUnit
 from spacegame.config import IMAGES_DIR
+from spacegame.core.effects import spawn_dust
 
 
 class ResourceCollector(SpaceUnit):
@@ -193,6 +194,13 @@ class ResourceCollector(SpaceUnit):
                 # Stop moving and mine
                 self.mover.set_target(self.pos)
                 self.mining_fill = min(self.mining_capacity, self.mining_fill + self.MINE_RATE * dt)
+                # Spawn a small dust cloud at the asteroid while mining
+                try:
+                    # match dust parameters used when ships fire projectiles
+                    spawn_dust(self.mining_target.pos, color=(200, 180, 140), count=26, speed=44.0, radius=3.5, lifetime=0.825, scale=1.2)
+                except Exception:
+                    # Non-fatal: if effects subsystem isn't available, ignore
+                    pass
                 # When full, set to return to mothership
                 if self.mining_fill >= self.mining_capacity:
                     self.mining_fill = self.mining_capacity
@@ -233,15 +241,15 @@ class ResourceCollector(SpaceUnit):
                         self.mover.set_target(self.mining_target.pos)
 
     # --------------- Drawing ---------------
-    def draw(self, surface, show_range=False):
-        # Draw the ship sprite and health/armor bars from base class
-        super().draw(surface, show_range=show_range)
+    def draw_overlay(self, surface, show_range=False):
+        # Draw overlays (sprite image is handled by sprite groups)
+        super().draw_overlay(surface, show_range=show_range)
 
         # If currently carrying or filling, draw orange mining meter above health bar
         if self.mining_fill <= 0.0:
             return
 
-        # Compute same bar geometry as SpaceUnit.draw
+        # Compute same bar geometry as SpaceUnit.draw_overlay
         surf, _ = self.get_rotated_sprite()
         rect = self.get_sprite_rect(surf)
 

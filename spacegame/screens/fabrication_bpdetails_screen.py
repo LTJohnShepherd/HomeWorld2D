@@ -15,8 +15,9 @@ from spacegame.config import (
     PREVIEWS_DIR,
 )
 from spacegame.core.fabrication import get_fabrication_manager
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
 from spacegame.core.modules_manager import manager as modules_manager
+from spacegame.models.modules.fabricatormodule import FabricatorModule
 from spacegame.ui.fabrication_ui import (
     generate_slot_rects,
     draw_index_square,
@@ -24,11 +25,11 @@ from spacegame.ui.fabrication_ui import (
     make_card_rect,
     compute_idx_rect_base,
 )
-from spacegame.ui.ui import draw_plus_circle, draw_corner_frame, OREM_PREVIEW_IMG, preview_for_unit
-from spacegame.ui.fleet_management_ui import draw_tier_icon
+from spacegame.ui.ui import draw_plus_circle, drawCornerFrame, OREM_PREVIEW_IMG, preview_for_unit, UI_BG_IMG
+from spacegame.ui.fleet_management_ui import draw_tier_icon_image
                       
 
-def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_index, bp):
+def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_index, bp, station_slot=False):
     # Use the existing display surface if present; otherwise create one.
     screen = pygame.display.get_surface()
     if screen is None:
@@ -68,9 +69,10 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
 
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
+    icon_filenames = ["Nav_Icon_Inventory.png", "Nav_Icon_Bridge.png", "Nav_Icon_Fabricator.png", "Nav_Icon_Refinery.png", "Nav_Icon_InternalModules.png"]
     selected_tab = 2  # FABRICATION selected
 
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     disabled_labels = set()
     if not modules_manager.get_fabricators():
         disabled_labels.add("FABRICATION")
@@ -96,6 +98,14 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
     IDX_V_SPACING = idx_size + 24
     # one rect per equipped fabricator: 01 stays as-is, 02/03/... stacked below it
     idx_rects: list[pygame.Rect] = generate_slot_rects(idx_rect_base, slot_count, IDX_V_SPACING)
+    # station-only SY slot rect. If opened from SY place it in the first slot position
+    # to avoid an empty gap; otherwise position it under module slots.
+    if station_slot and idx_rects:
+        sy_rect = idx_rects[0].copy()
+    else:
+        sy_rect = pygame.Rect(idx_rect_base.left, idx_rect_base.top + IDX_V_SPACING * len(idx_rects), idx_size, idx_size)
+    # station selection state
+    station_slot_selected = bool(station_slot)
 
     # ----- BIG CENTER RECT -----
     plus_radius = 120
@@ -150,6 +160,13 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
             disabled_labels.add("FABRICATION")
         if not modules_manager.get_refineries():
             disabled_labels.add("REFINING")
+        # Determine if player is currently at a station (hide SY when not at a station)
+        try:
+            loc_area = getattr(main_player, 'location_area', '')
+            is_at_station = isinstance(loc_area, str) and ('station' in loc_area.lower())
+        except Exception:
+            is_at_station = False
+        station_visible = bool(station_slot and is_at_station)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -202,12 +219,18 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
                             selected_tab = idx
                         break
                 
-                # Fabricator slot buttons (01 / 02 / ...)
-                for i, rect in enumerate(idx_rects):
-                    if rect.collidepoint(mx, my):
-                        selected_fabricator_index = i
-                        manager.set_selected_index(i)
-                        break
+                # Fabricator slot buttons (01 / 02 / ...) - only when not in station-only mode
+                if not station_visible:
+                    for i, rect in enumerate(idx_rects):
+                        if rect.collidepoint(mx, my):
+                            selected_fabricator_index = i
+                            station_slot_selected = False
+                            manager.set_selected_index(i)
+                            break
+                # SY station-only slot (only present when this screen was opened from SY and player is at a station)
+                if station_visible and 'sy_rect' in locals() and sy_rect.collidepoint(mx, my):
+                    station_slot_selected = True
+                    continue
 
                 # ----- BUILD / SPEED UP / CANCEL -----
                 fab_module = manager.get_module(selected_fabricator_index)
@@ -257,12 +280,48 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
 
                 # BUILD (start fabrication)
                 if (not is_fabricating) and (not insufficient_resources) and fab_module is not None and build_btn_rect.collidepoint(mx, my):
+                    # Station-slot builds: consume resources immediately and add a hangar entry
+                    if station_slot:
+                        inv_mgr = getattr(main_player, 'inventory_manager', None)
+                        ore_letter = getattr(bp, 'required_ore_letter', None)
+                        ore_amount = int(getattr(bp, 'required_ore_amount', 0))
+                        if inv_mgr is None or ore_letter is None or inv_mgr.get_amount(ore_letter) < ore_amount:
+                            # insufficient — ignore
+                            continue
+                        # consume resources
+                        inv_mgr.consume_resource(ore_letter, ore_amount)
+                        # create hangar entry and add via InventoryManager
+                        try:
+                            from spacegame.core.hangar import HangarEntry
+                            hangar = getattr(inv_mgr, 'hangar', None)
+                            existing_ids = [e.id for e in hangar.pool] if (hangar and getattr(hangar, 'pool', None)) else []
+                            next_id = max(existing_ids) + 1 if existing_ids else 0
+                            entry_name = getattr(bp, 'title', getattr(bp, 'name', 'Craft'))
+                            entry = HangarEntry(id=next_id, name=entry_name, unit_type="", alive=True, tier=getattr(bp, 'tier', 0), rarity=getattr(bp, 'rarity', ''))
+                            inv_mgr.add_hangar_entry(entry)
+                            # add a simple notification
+                            try:
+                                notif = {'type': 'fabrication', 'title': entry_name, 'elapsed': 0.0, 'duration': 3.5}
+                                preview = getattr(bp, 'preview_filename', None)
+                                if preview:
+                                    notif['preview'] = preview
+                                inv_mgr.add_notification(notif)
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                        continue
+
+                    # Default module-based fabrication
                     manager.start_fabrication(selected_fabricator_index, bp, main_player)
                     continue
 
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Nav band coordinates
         nav_top_y = tabs_y - 6
@@ -284,14 +343,13 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         # Title (on top of nav background)
         screen.blit(title_surf, title_rect)
 
-        # Back arrow (on top of nav background)
-        arrow_color = (220, 235, 255)
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # Back arrow (on top of nav background) - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_size = 32
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -305,27 +363,42 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         # Left detail: index squares (01, 02, ...) with corner-only decoration + progress bar.
         # (Uses shared `draw_index_square` from `spacegame.ui.fabrication_ui`.)
 
-        # draw all fabricator slots (01 / 02 / ...)
-        for i, rect in enumerate(idx_rects, start=1):
+        # Draw either fabricator module slots OR the station-only SY slot depending on entry mode
+        if not station_visible:
+            for i, rect in enumerate(idx_rects, start=1):
+                draw_index_square(
+                    screen,
+                    rect,
+                    f"{i:02d}",
+                    (i - 1) == selected_fabricator_index and not station_slot_selected,
+                    UI_TAB_UNDERLINE_COLOR,
+                    UI_TAB_TEXT_SELECTED,
+                )
+        else:
             draw_index_square(
                 screen,
-                rect,
-                f"{i:02d}",
-                (i - 1) == selected_fabricator_index,
+                sy_rect,
+                "SY",
+                station_slot_selected,
                 UI_TAB_UNDERLINE_COLOR,
                 UI_TAB_TEXT_SELECTED,
             )
 
         # ----- shared fabrication timer/progress (per fabricator module) -----
-        fab_module = fabricator_modules[selected_fabricator_index] if selected_fabricator_index < len(fabricator_modules) else None
+        if station_slot_selected:
+            fab_module = FabricatorModule()
+            status = {"total_ms": 0, "start_ticks": 0, "progress": 0.0, "remaining_s": 0, "is_fabricating": False}
+        else:
+            fab_module = fabricator_modules[selected_fabricator_index] if selected_fabricator_index < len(fabricator_modules) else None
         # Display true fabrication time as blueprint base time multiplied
         # by the fabricator module's base_fabrication_time factor.
         blueprint_time = float(getattr(bp, "base_fabrication_time", 0))
         module_factor = float(getattr(fab_module, "base_fabrication_time", 1.0))
         base_time_s = int(blueprint_time * module_factor)
 
-        # Use manager API to retrieve authoritative fabrication status for this slot
-        status = manager.get_status(selected_fabricator_index)
+        # If not station slot, use manager API to retrieve authoritative fabrication status for this slot
+        if not station_slot_selected:
+            status = manager.get_status(selected_fabricator_index)
         total_ms = int(status.get("total_ms", 0))
         start_ticks = int(status.get("start_ticks", 0))
         fabrication_progress = float(status.get("progress", 0.0))
@@ -348,11 +421,16 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         PROGRESS_COLOR = (255, 160, 40)  # same orange as nav X
 
 
-        for i, rect in enumerate(idx_rects):
-            # Always draw the progress bar background; fill when manager reports progress.
-            status = manager.get_status(i)
-            progress = float(status.get("progress", 0.0))
-            draw_slot_progress(screen, rect, progress, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
+        # Draw per-module progress bars when module slots are shown. If this screen
+        # was opened in station mode, draw a placeholder progress bar for SY.
+        if not station_visible:
+            for i, rect in enumerate(idx_rects):
+                status = manager.get_status(i)
+                progress = float(status.get("progress", 0.0))
+                draw_slot_progress(screen, rect, progress, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
+        else:
+            # show placeholder/empty progress bar for SY to match other slot visuals
+            draw_slot_progress(screen, sy_rect, 0.0, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
 
 
 
@@ -445,7 +523,6 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
                 rmod = RefineryModule(tier=getattr(bp, 'tier', 1))
                 module_size = getattr(rmod, 'module_size', 0)
                 base_refinement_time = getattr(rmod, 'base_refinement_time', 0.0)
-                standard_refinement_time_s = getattr(rmod, 'standard_refinement_time_s', 0.0)
                 stat_rows = [
                     ("Module Size:", str(module_size)),
                     ("Base Refinement Time:", str(base_refinement_time)),
@@ -531,7 +608,7 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
         # MOVE THE BOTTOM CORNERS HIGHER
         bottom_offset = 80  # how much upward to move them
         adjusted_bottom = big_rect.bottom - bottom_offset
-        draw_corner_frame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick, bottom_offset=bottom_offset)
+        drawCornerFrame(screen, big_rect, corner_color, corner_len=big_corner_len, corner_thick=big_corner_thick, bottom_offset=bottom_offset)
 
         # --- preview in the center of the big rect ---
         # Prefer the produced unit's preview image (from PREVIEW_IMAGE_MAP via preview_for_unit).
@@ -568,7 +645,6 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
                     from spacegame.models.blueprints.refineryblueprint import BPRefinery
                     from spacegame.models.modules.refinerymodule import RefineryModule
                     from spacegame.models.blueprints.fabricatorblueprint import BPFabricator
-                    from spacegame.models.modules.fabricatormodule import FabricatorModule
 
                     if isinstance(bp, BPRefinery):
                         rmod = RefineryModule(tier=getattr(bp, 'tier', 1))
@@ -727,14 +803,13 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
                 ore_rect.left = right_rect.left + 16
                 ore_rect.centery = row_y
                 screen.blit(ore_surf, ore_rect)
-
-                # ore tier flag box
+                # ore tier icon box
                 flag_w = 70
                 flag_h = 24
                 flag_rect = pygame.Rect(0, 0, flag_w, flag_h)
                 flag_rect.left = ore_rect.right + 12
                 flag_rect.centery = ore_rect.centery
-                draw_tier_icon(screen, flag_rect, tier)
+                draw_tier_icon_image(screen, flag_rect, tier)
                 pygame.draw.rect(screen, UI_NAV_LINE_COLOR, flag_rect, width=2)
 
                 flag_text = f"{letter}"
@@ -831,28 +906,13 @@ def fabrication_bpdetails_screen(main_player, player_fleet, selected_fabricator_
                 pygame.draw.rect(screen, icon_bg, icon_rect)
                 pygame.draw.rect(screen, WARNING_ORANGE, icon_rect, 1)
 
-                margin = icon_rect.width * 0.23
-                top_y = icon_rect.top + margin
-                bottom_y = icon_rect.bottom - margin
-                left_x = icon_rect.left + margin
-                right_x = icon_rect.right - margin
-                tri_points = [
-                    ((left_x + right_x) / 2, top_y),
-                    (left_x, bottom_y),
-                    (right_x, bottom_y),
-                ]
-                pygame.draw.polygon(screen, WARNING_ORANGE, tri_points)
-
-                cx = (left_x + right_x) / 2
-                ex_top = top_y + (bottom_y - top_y) * 0.35
-                ex_bottom = bottom_y - (bottom_y - top_y) * 0.2
-                pygame.draw.line(screen, outer_bg, (cx, ex_top), (cx, ex_bottom), 3)
-                pygame.draw.circle(
-                    screen,
-                    outer_bg,
-                    (int(cx), int(bottom_y - (bottom_y - top_y) * 0.1)),
-                    2,
-                )
+                # Load and scale warning icon image
+                warning_icon_path = f"{PREVIEWS_DIR}/WarningIcon_TriangleNoGlow.png"
+                warning_icon = pygame.image.load(warning_icon_path)
+                icon_size = int(icon_rect.width * 0.75)
+                warning_icon = pygame.transform.scale(warning_icon, (icon_size, icon_size))
+                warning_icon_rect = warning_icon.get_rect(center=icon_rect.center)
+                screen.blit(warning_icon, warning_icon_rect)
 
                 warn_text = "INSUFFICIENT RESOURCES"
                 warn_surf = btn_font.render(warn_text, True, (255, 230, 120))

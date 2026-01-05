@@ -13,9 +13,10 @@ from spacegame.config import (
     UI_ICON_BLUE,
     PREVIEWS_DIR,
 )
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
+from spacegame.ui.ui import UI_BG_IMG
 from spacegame.core.modules_manager import manager as modules_manager
-from spacegame.ui.fleet_management_ui import draw_tier_icon
+from spacegame.ui.fleet_management_ui import draw_tier_icon_image
 
 
 def module_selection_screen(main_player, player_fleet, start_section: int = 1, installed_sections=None):
@@ -51,8 +52,9 @@ def module_selection_screen(main_player, player_fleet, start_section: int = 1, i
     title_rect = title_surf.get_rect(center=(width // 2, TOP_BAR_HEIGHT // 2 - 22))
 
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
+    icon_filenames = ["Nav_Icon_Inventory.png", "Nav_Icon_Bridge.png", "Nav_Icon_Fabricator.png", "Nav_Icon_Refinery.png", "Nav_Icon_InternalModules.png"]
     selected_tab = 4
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     disabled_labels = set()
     if not modules_manager.get_fabricators():
         disabled_labels.add("FABRICATION")
@@ -285,7 +287,10 @@ def module_selection_screen(main_player, player_fleet, start_section: int = 1, i
                         pass
 
         # draw background and nav
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
         nav_top_y = tabs_y - 6
         nav_bottom_y = tabs_y + UI_TAB_HEIGHT + 6
         pygame.draw.rect(screen, UI_NAV_BG_COLOR, (0, nav_top_y, width, nav_bottom_y - nav_top_y))
@@ -300,7 +305,14 @@ def module_selection_screen(main_player, player_fleet, start_section: int = 1, i
             (back_arrow_rect.right, back_arrow_rect.top),
             (back_arrow_rect.right, back_arrow_rect.bottom),
         ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # back arrow - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
+        else:
+            pygame.draw.polygon(screen, arrow_color, arrow_points)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -336,7 +348,7 @@ def module_selection_screen(main_player, player_fleet, start_section: int = 1, i
                 module = filtered[idx]
                 pygame.draw.rect(screen, (30, 40, 70), rect, border_radius=0)
                 pygame.draw.rect(screen, UI_ICON_BLUE, rect, 2, border_radius=0)
-                draw_tier_icon(screen, rect, getattr(module, "tier", 0))
+                draw_tier_icon_image(screen, rect, getattr(module, "tier", 0))
 
                 thumb_w, thumb_h = 80, 64
                 thumb_x = rect.left + 20

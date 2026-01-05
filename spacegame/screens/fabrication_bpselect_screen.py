@@ -19,10 +19,12 @@ from spacegame.models.blueprints.resourcecollectorblueprint import BPResourceCol
 from spacegame.models.blueprints.plasmabomberblueprint import BPPlasmaBomber
 from spacegame.models.blueprints.refineryblueprint import BPRefinery
 from spacegame.models.blueprints.fabricatorblueprint import BPFabricator
-from spacegame.ui.fleet_management_ui import draw_tier_icon
+from spacegame.models.blueprints.escortfrigateblueprint import BPEscortFrigate
+from spacegame.ui.fleet_management_ui import draw_tier_icon_image
 from spacegame.core.fabrication import get_fabrication_manager
 from spacegame.screens.fabrication_bpdetails_screen import fabrication_bpdetails_screen
-from spacegame.ui.nav_ui import create_tab_entries, draw_tabs
+from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
+from spacegame.ui.ui import UI_BG_IMG
 from spacegame.core.modules_manager import manager as modules_manager
 from spacegame.ui.fabrication_ui import (
     generate_slot_rects,
@@ -31,7 +33,7 @@ from spacegame.ui.fabrication_ui import (
 )
 
 
-def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_index=0):
+def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_index=None, station_slot=False):
     # Use the existing display surface if present; otherwise create one.
     screen = pygame.display.get_surface()
     if screen is None:
@@ -67,10 +69,11 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
 
     # ---------- TABS ----------
     tab_labels = ["STORAGE", "BRIDGE", "FABRICATION", "REFINING", "INTERNAL MODULES"]
+    icon_filenames = ["Nav_Icon_Inventory.png", "Nav_Icon_Bridge.png", "Nav_Icon_Fabricator.png", "Nav_Icon_Refinery.png", "Nav_Icon_InternalModules.png"]
     selected_tab = 2  # FABRICATION selected
 
     # Use central nav helper to compute tab entries and layout
-    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT)
+    tab_entries, tabs_y = create_tab_entries(tab_labels, tab_font, width, TOP_BAR_HEIGHT, UI_TAB_HEIGHT, icon_filenames)
     disabled_labels = set()
     if not modules_manager.get_fabricators():
         disabled_labels.add("FABRICATION")
@@ -82,8 +85,17 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
     fabricator_modules = manager.get_modules() or []
     slot_count = max(1, len(fabricator_modules))
 
-    # use manager's persisted selected index and clamp to valid range
-    selected_fabricator_index = manager.get_selected_index()
+    # Determine selected index: prefer passed value, otherwise use manager persisted index
+    if selected_fabricator_index is None:
+        selected_fabricator_index = manager.get_selected_index()
+    else:
+        try:
+            selected_fabricator_index = max(0, min(int(selected_fabricator_index), len(fabricator_modules) - 1))
+        except Exception:
+            selected_fabricator_index = manager.get_selected_index()
+
+    # station slot initial selection state
+    station_slot_selected = bool(station_slot)
 
     # Geometry for the left card and index column (01 / 02 / ...)
     nav_top_y = tabs_y - 6
@@ -101,6 +113,12 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
     idx_rect_base = pygame.Rect(card_rect.left + 16, card_rect.top + 16, idx_size, idx_size)
     IDX_V_SPACING = idx_size + 24
     idx_rects = generate_slot_rects(idx_rect_base, slot_count, IDX_V_SPACING)
+    # station-only SY slot rect. When opened from SY we place it in the first slot
+    # position so there's no empty gap; otherwise position it under module slots.
+    if station_slot and idx_rects:
+        sy_rect = idx_rects[0].copy()
+    else:
+        sy_rect = pygame.Rect(idx_rect_base.left, idx_rect_base.top + IDX_V_SPACING * len(idx_rects), idx_size, idx_size)
 
     # Layout / card constants reused from inventory screen style
     BOX_W = 260
@@ -115,10 +133,17 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
     SCROLL_STEP = 40
     SCROLL_SMOOTH = 0.25
 
-    # Build blueprint categories (SHIPS includes interceptors, collectors and bombers)
-    categories = [
-        ("SHIPS", [BPInterceptor(), BPPlasmaBomber(), BPResourceCollector(), BPRefinery(), BPFabricator()]),
-    ]
+    # Build blueprint categories. If opened from the station-only SY slot, show
+    # only large-ship blueprints (Escort Frigate appears first).
+    if station_slot:
+        categories = [
+            ("SHIPS", [BPEscortFrigate()]),
+        ]
+    else:
+        # Default: ships including interceptors, collectors and bombers
+        categories = [
+            ("SHIPS", [BPInterceptor(), BPPlasmaBomber(), BPResourceCollector(), BPRefinery(), BPFabricator()]),
+        ]
 
     running = True
     while running:
@@ -128,6 +153,13 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
             disabled_labels.add("FABRICATION")
         if not modules_manager.get_refineries():
             disabled_labels.add("REFINING")
+        # Determine if player is currently at a station (hide SY when not at a station)
+        try:
+            loc_area = getattr(main_player, 'location_area', '')
+            is_at_station = isinstance(loc_area, str) and ('station' in loc_area.lower())
+        except Exception:
+            is_at_station = False
+        station_visible = bool(station_slot and is_at_station)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -184,11 +216,19 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
                         break
 
                 # Fabricator slot buttons (01 / 02 / ...)
-                for i, rect in enumerate(idx_rects):
-                    if rect.collidepoint(mx, my):
-                        selected_fabricator_index = i
-                        manager.set_selected_index(i)
-                        break
+                if not station_visible:
+                    for i, rect in enumerate(idx_rects):
+                        if rect.collidepoint(mx, my):
+                            selected_fabricator_index = i
+                            station_slot_selected = False
+                            manager.set_selected_index(i)
+                            break
+
+                # SY station-only slot (only visible/selectable if this screen was opened from SY and player is at a station)
+                if station_visible and sy_rect.collidepoint(mx, my):
+                    station_slot_selected = True
+                    # keep manager index unchanged for SY selection
+                    continue
 
                 # Blueprint card clicks → open DETAILS SCREEN
                 for i, rect in enumerate(card_rects):
@@ -205,7 +245,8 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
                             main_player,
                             player_fleet,
                             selected_fabricator_index,
-                            bp
+                            bp,
+                            station_slot=station_slot,
                         )
 
                         # Sync return value
@@ -222,7 +263,10 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
                 offset_y_raw += event.y * SCROLL_STEP
 
         # ---------- DRAW ----------
-        screen.fill(UI_BG_COLOR)
+        try:
+            screen.blit(UI_BG_IMG, (0, 0))
+        except Exception:
+            screen.fill(UI_BG_COLOR)
 
         # Nav band coordinates
         nav_top_y = tabs_y - 6
@@ -244,14 +288,13 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
         # Title (on top of nav background)
         screen.blit(title_surf, title_rect)
 
-        # Back arrow (on top of nav background)
-        arrow_color = (220, 235, 255)
-        arrow_points = [
-            (back_arrow_rect.left, back_arrow_rect.centery),
-            (back_arrow_rect.right, back_arrow_rect.top),
-            (back_arrow_rect.right, back_arrow_rect.bottom),
-        ]
-        pygame.draw.polygon(screen, arrow_color, arrow_points)
+        # Back arrow (on top of nav background) - use image
+        back_arrow_img = get_back_arrow_image()
+        if back_arrow_img:
+            arrow_size = 32
+            arrow_scaled = pygame.transform.smoothscale(back_arrow_img, (arrow_size - 4, arrow_size - 4))
+            arrow_draw_rect = arrow_scaled.get_rect(center=back_arrow_rect.center)
+            screen.blit(arrow_scaled, arrow_draw_rect)
 
         # Close X (on top of nav background)
         screen.blit(close_surf, close_rect)
@@ -264,13 +307,24 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
 
         # Left detail: index squares (01, 02, ...) with corner-only decoration + progress bar.
 
-        # Draw all slot squares (01 / 02 / ...)
-        for i, r in enumerate(idx_rects, start=1):
+        # Draw slot squares: either module slots OR the SY station slot depending on how this screen was opened.
+        if not station_visible:
+            for i, r in enumerate(idx_rects, start=1):
+                draw_index_square(
+                    screen,
+                    r,
+                    f"{i:02d}",
+                    (i - 1) == selected_fabricator_index and not station_slot_selected,
+                    UI_TAB_UNDERLINE_COLOR,
+                    UI_TAB_TEXT_SELECTED,
+                )
+        else:
+            # Only draw the station-only SY slot when the screen was opened from SY
             draw_index_square(
                 screen,
-                r,
-                f"{i:02d}",
-                (i - 1) == selected_fabricator_index,
+                sy_rect,
+                "SY",
+                station_slot_selected,
                 UI_TAB_UNDERLINE_COLOR,
                 UI_TAB_TEXT_SELECTED,
             )
@@ -280,11 +334,16 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
         pb_margin = 12
         PROGRESS_COLOR = (255, 160, 40)  # same orange as nav X
 
-        for i, r in enumerate(idx_rects):
-            # Always draw the progress bar background; fill when manager reports progress.
-            status = manager.get_status(i)
-            fabrication_progress = float(status.get("progress", 0.0))
-            draw_slot_progress(screen, r, fabrication_progress, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
+        # Draw progress bars for module slots when visible; when in station mode draw a
+        # progress bar for the SY slot (station fabrication has no manager timer so show 0).
+        if not station_visible:
+            for i, r in enumerate(idx_rects):
+                status = manager.get_status(i)
+                fabrication_progress = float(status.get("progress", 0.0))
+                draw_slot_progress(screen, r, fabrication_progress, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
+        else:
+            # show an empty/placeholder progress bar for SY so visuals match other slots
+            draw_slot_progress(screen, sy_rect, 0.0, pb_margin=pb_margin, progress_color=PROGRESS_COLOR)
 
 
         # ---------- Right-hand area: categories + blueprint cards (inventory style)
@@ -369,9 +428,9 @@ def fabrication_bpselect_screen(main_player, player_fleet, selected_fabricator_i
                 pygame.draw.rect(screen, (30, 40, 70), draw_rect, border_radius=0)
                 pygame.draw.rect(screen, UI_ICON_BLUE, draw_rect, 2, border_radius=0)
 
-                # tier flag
+                # tier icon
                 tier_value = getattr(bp, "tier", 0)
-                draw_tier_icon(screen, draw_rect, tier_value)
+                draw_tier_icon_image(screen, draw_rect, tier_value)
 
                 img = pygame.image.load(PREVIEWS_DIR + "/" + bp.preview_filename)
                 img = pygame.transform.smoothscale(img, (48, 48))

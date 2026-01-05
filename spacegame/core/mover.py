@@ -1,15 +1,17 @@
 import pygame
 import math
 from pygame.math import Vector2
+from spacegame import config
 
 class Mover:
   
-    def __init__(self, start_pos, ship_size=(60, 30), speed=300, rotation_speed=360):
+    def __init__(self, start_pos, ship_size=(60, 30), speed=None, rotation_speed=None):
         self.world_pos = Vector2(start_pos)
         self.target_pos = Vector2(start_pos)
         self.ship_size = ship_size
-        self.speed = speed
-        self.rotation_speed = rotation_speed
+        # Use provided values or fall back to central config defaults
+        self.speed = float(speed if speed is not None else config.PLAYER_DEFAULT_SPEED)
+        self.rotation_speed = float(rotation_speed if rotation_speed is not None else config.PLAYER_DEFAULT_ROT_SPEED)
         self.angle = 0.0
         self.is_selected = False
         self.formation_offset = Vector2()
@@ -74,13 +76,11 @@ class Mover:
         if overlap_x <= 0 or overlap_y <= 0:
             return
 
-        MAX_PUSH = 2.0  # cap per call
-
         if overlap_x < overlap_y:
-            push_mag = min(overlap_x / 2.0, MAX_PUSH)
+            push_mag = min(overlap_x / 2.0, config.SEPARATION_MAX_PUSH)
             push = Vector2(push_mag * (1 if dx > 0 else -1), 0)
         else:
-            push_mag = min(overlap_y / 2.0, MAX_PUSH)
+            push_mag = min(overlap_y / 2.0, config.SEPARATION_MAX_PUSH)
             push = Vector2(0, push_mag * (1 if dy > 0 else -1))
 
         push *= 0.95

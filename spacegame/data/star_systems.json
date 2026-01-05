@@ -1,0 +1,44 @@
+{
+  "Lazarus": {
+    "visitables": [
+      {
+        "name": "Lazarus Station",
+        "type": "Station",
+        "position": [20, -10],
+        "tier": 0
+      },
+      {
+        "name": "Asteroid Cluster Alpha",
+        "type": "Asteroids",
+        "ore": "M",
+        "position": [-120, 40],
+        "tier": 0,
+        "purity": 0.5
+      },
+      {
+        "name": "Asteroid Cluster Beta",
+        "type": "Asteroids",
+        "ore": "M",
+        "position": [-40, 80],
+        "tier": 0,
+        "purity": 0.45
+      },
+      {
+        "name": "Asteroid Cluster Delta",
+        "type": "Asteroids",
+        "ore": "M",
+        "position": [80, 60],
+        "tier": 0,
+        "purity": 0.4
+      },
+      {
+        "name": "Asteroid Cluster Epsilon",
+        "type": "Asteroids",
+        "ore": "M",
+        "position": [140, -80],
+        "tier": 0,
+        "purity": 0.35
+      }
+    ]
+  }
+}

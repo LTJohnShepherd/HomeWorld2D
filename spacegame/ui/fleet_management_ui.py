@@ -5,41 +5,51 @@ visuals (tier icons, section headers and preview layout geometry).
 """
 
 import pygame
-from spacegame.config import UI_ICON_BLUE, UI_ICON_WHITE
+from spacegame.config import PREVIEWS_DIR
 
 
-def tier_to_roman(tier_value: int) -> str:
-    """Convert a numeric tier into a short Roman-like label.
+_tier_icon_cache = {}
 
-    The function returns a compact label used in tier badges. For values
-    beyond supported numerals it appends a `+N` suffix (e.g. "III+2").
+
+def get_tier_icon_image(tier_value: int) -> pygame.Surface:
+    """Return the tier icon image based on tier value (0-3+).
+
+    Caches loaded images to avoid repeated file I/O.
+    Tier 0 uses UI_icon_tier0.jpg, tier 1-3 use UI_icon_tier1/2/3.png.
+    Tier values > 3 fall back to tier 3 image.
     """
-    if tier_value <= 0:
-        return "0"
-    numerals = ["", "I", "II", "III"]
-    if tier_value < len(numerals):
-        return numerals[tier_value]
-    return numerals[-1] + f"+{tier_value - (len(numerals) - 1)}"
+    tier_value = max(0, min(3, int(tier_value)))
+    
+    if tier_value not in _tier_icon_cache:
+        if tier_value == 0:
+            img_name = "UI_icon_tier0.jpg"
+        else:
+            img_name = f"UI_icon_tier{tier_value}.png"
+        
+        path = f"{PREVIEWS_DIR}/{img_name}"
+        try:
+            img = pygame.image.load(path).convert_alpha()
+            _tier_icon_cache[tier_value] = img
+        except Exception as e:
+            raise RuntimeError(f"Failed to load tier icon {path}: {e}")
+    
+    return _tier_icon_cache[tier_value]
 
 
-def draw_tier_icon(surface: pygame.Surface, host_rect: pygame.Rect, tier_value: int) -> None:
-    """Draw a small tier badge in the top-right corner of `host_rect`.
+def draw_tier_icon_image(surface: pygame.Surface, host_rect: pygame.Rect, tier_value: int) -> None:
+    """Draw the tier icon image in the top-right corner of `host_rect`.
 
-    The badge contains a Roman-like numeral produced by `tier_to_roman`.
-    This helper ensures the same visual is used across fleet-related UIs.
+    Uses actual tier icon images from the previews folder based on tier value.
+    No fallbacks—will raise an exception if image cannot be loaded.
     """
-    large_tier_font = pygame.font.Font(None, 26)
-
+    img = get_tier_icon_image(tier_value)
+    
     flag_w = 22
     flag_h = 22
+    img_scaled = pygame.transform.smoothscale(img, (flag_w, flag_h))
+    
     flag_rect = pygame.Rect(host_rect.right - flag_w - 1, host_rect.top + 1, flag_w, flag_h)
-
-    pygame.draw.rect(surface, UI_ICON_BLUE, flag_rect)
-
-    text = tier_to_roman(int(tier_value))
-    tier_text = large_tier_font.render(text, True, UI_ICON_WHITE)
-    tier_text_rect = tier_text.get_rect(center=flag_rect.center)
-    surface.blit(tier_text, tier_text_rect)
+    surface.blit(img_scaled, flag_rect)
 
 
 def draw_fleet_section_titles(

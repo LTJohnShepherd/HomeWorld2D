@@ -52,6 +52,13 @@ RESOURCE_COLLECTOR_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Resource_Col
 OREM_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/RUOreM.png")
 BOMBER_PREVIEW_IMG = pygame.image.load(PREVIEWS_DIR + "/Bomber_Preview.png")
 
+# Small UI icons
+UI_ICON_GEARSCORE_IMG = pygame.image.load(PREVIEWS_DIR + "/UI_icon_gearScore.png")
+
+# Background images
+UI_BG_IMG = pygame.image.load(PREVIEWS_DIR + "/ui_background.png")
+UI_BG_MAINMENU_IMG = pygame.image.load(PREVIEWS_DIR + "/ui_background_mainmenu.png")
+
 # Map unit type keys to preview surfaces for easy lookup by UI code.
 PREVIEW_IMAGE_MAP = {
     "expedition": EXPEDITION_PREVIEW_IMG,
@@ -78,7 +85,7 @@ def preview_for_unit(unit_type: str, default: str = "interceptor"):
 # Cache for scaled preview surfaces to avoid repeated smoothscale() calls.
 _SCALED_PREVIEW_CACHE: dict = {}
 
-def scaled_preview_for_unit(unit_type: str, size: tuple):
+def scaledpreview_for_unit(unit_type: str, size: tuple):
     """Return a scaled preview surface for `unit_type` at `size` (w,h).
 
     Results are cached in-module to avoid doing `smoothscale` every frame
@@ -218,7 +225,7 @@ def draw_plus_circle(surface, center, radius, color, plus_size: int = 14, circle
     pygame.draw.line(surface, color, (cx, cy - plus_size), (cx, cy + plus_size), int(plus_thickness))
 
 
-def draw_corner_frame(surface, rect: pygame.Rect, color, corner_len: int = 18, corner_thick: int = 3, bottom_offset: int = 0):
+def drawCornerFrame(surface, rect: pygame.Rect, color, corner_len: int = 18, corner_thick: int = 3, bottom_offset: int = 0):
     """Draw corner-only decorations on `rect`.
 
     `bottom_offset` moves the bottom corners upward by that many pixels (useful
@@ -261,24 +268,31 @@ def draw_multiline_text(surface, text: str, font: pygame.font.Font, color, tople
 
 
 def draw_power_icon(surface, topleft: tuple, size: int = 20, color=(200, 200, 220)):
-    """Draw a small lightning-bolt style power icon inside a box starting at `topleft`.
+    """Render the power-level icon using the UI icon image from previews.
 
-    The icon is drawn as a filled polygon scaled to `size`.
+    The image is scaled to `(size, size*1.2)` and cached to avoid
+    repeated `smoothscale` calls. Kept signature compatible with callers.
     """
     x0, y0 = int(topleft[0]), int(topleft[1])
-    w = int(size)
-    h = int(round(size * 1.2))
+    w = int(size * 2)
+    h = int(round(size * 2))
 
-    # Normalized bolt shape points (percent of w/h).
-    rel = [
-        (0.15, 0.00),
-        (0.55, 0.00),
-        (0.35, 0.48),
-        (0.85, 0.48),
-        (0.25, 1.00),
-        (0.45, 0.52),
-        (0.15, 0.52),
-    ]
+    # compute the legacy icon center used by callers (old height = size*1.2)
+    legacy_h = int(round(size * 1.2))
+    legacy_center_y = y0 + (legacy_h // 2)
 
-    pts = [(x0 + int(px * w), y0 + int(py * h)) for (px, py) in rel]
-    pygame.draw.polygon(surface, color, pts)
+    # simple cache for scaled icon surfaces
+    try:
+        _SCALED_POWER_ICON_CACHE
+    except NameError:
+        _SCALED_POWER_ICON_CACHE = {}
+
+    key = (w, h)
+    surf = _SCALED_POWER_ICON_CACHE.get(key)
+    if surf is None:
+        surf = pygame.transform.smoothscale(UI_ICON_GEARSCORE_IMG, (w, h))
+        _SCALED_POWER_ICON_CACHE[key] = surf
+
+    # blit so the new icon's center aligns with the legacy center (numbers use that)
+    blit_y = int(legacy_center_y - (h // 2))
+    surface.blit(surf, (x0, blit_y))
