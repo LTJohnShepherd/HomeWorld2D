@@ -13,8 +13,8 @@ from spacegame.config import (
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR,
     UI_ICON_BLUE,
+    PREVIEWS_DIR
 )
-from spacegame.config import PREVIEWS_DIR
 from spacegame.models.ores.orea import RUOreA
 from spacegame.models.ores.oreb import RUOreB
 from spacegame.models.ores.orec import RUOreC

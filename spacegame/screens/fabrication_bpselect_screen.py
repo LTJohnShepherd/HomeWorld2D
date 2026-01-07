@@ -12,8 +12,8 @@ from spacegame.config import (
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR,
     UI_ICON_BLUE,
+    PREVIEWS_DIR
 )
-from spacegame.config import PREVIEWS_DIR
 from spacegame.models.blueprints.interceptorblueprint import BPInterceptor
 from spacegame.models.blueprints.resourcecollectorblueprint import BPResourceCollector
 from spacegame.models.blueprints.plasmabomberblueprint import BPPlasmaBomber

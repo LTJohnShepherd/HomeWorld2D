@@ -5,7 +5,7 @@ installed internal modules (three sections) and provides helpers to query
 fabricator/refinery modules. It is intended to be the single source of
 truth for equipped modules across the codebase.
 """
-from typing import List, Optional
+from typing import List
 from spacegame.models.modules.module import ShipModule
 
 

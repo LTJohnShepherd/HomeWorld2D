@@ -2,6 +2,7 @@ import pygame
 from spacegame.models.units.fleet_unit import SpaceUnit
 from spacegame.config import IMAGES_DIR
 from spacegame.core.effects import spawn_dust
+from spacegame.core.sound_manager import get_sound_manager
 
 
 class ResourceCollector(SpaceUnit):
@@ -75,6 +76,12 @@ class ResourceCollector(SpaceUnit):
         self.healing_target = target
         # Navigate to the target
         self.mover.set_target(target.pos)
+        # Play repair command sound
+        try:
+            sound_manager = get_sound_manager()
+            sound_manager.on_repair_command()
+        except Exception:
+            pass
 
     def cancel_healing(self):
         """Cancel the current healing operation."""
@@ -145,6 +152,13 @@ class ResourceCollector(SpaceUnit):
         self.returning_to_ship = False
         # navigate to asteroid
         self.mover.set_target(asteroid.pos)
+        
+        # Play harvest command sound
+        try:
+            sound_manager = get_sound_manager()
+            sound_manager.on_harvest_command()
+        except Exception:
+            pass
 
     def cancel_mining(self):
         """Stop mining operation (keeps collected fill)."""
@@ -204,6 +218,12 @@ class ResourceCollector(SpaceUnit):
                 # When full, set to return to mothership
                 if self.mining_fill >= self.mining_capacity:
                     self.mining_fill = self.mining_capacity
+                    # Play resource collector full sound
+                    try:
+                        sound_manager = get_sound_manager()
+                        sound_manager.on_resource_collector_full()
+                    except Exception:
+                        pass
                     self.returning_to_ship = True
                     if mothership is not None:
                         self.mover.set_target(mothership.pos)
@@ -233,6 +253,12 @@ class ResourceCollector(SpaceUnit):
                         if inv is None:
                             raise RuntimeError("Mothership missing InventoryManager; migration required")
                         inv.add_resource(self.mining_target.ore_type, amount)
+                        # Play resource transfer sound
+                        try:
+                            sound_manager = get_sound_manager()
+                            sound_manager.on_resource_transfer()
+                        except Exception:
+                            pass
                     # Reset fill and continue mining loop (go back to asteroid)
                     self.mining_fill = 0.0
                     self.returning_to_ship = False

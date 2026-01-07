@@ -8,6 +8,7 @@ import pygame
 from spacegame.models.units.frigate import Frigate
 from spacegame.ui.ui import preview_for_unit, draw_triangle, draw_diamond, draw_dalton, draw_hex, draw_health_bar, draw_armor_bar
 from spacegame.config import UI_TAB_TEXT_SELECTED
+from spacegame.core.sound_manager import get_sound_manager
 
 
 class HudUI:
@@ -85,6 +86,12 @@ class HudUI:
                     if fighter_ship is not None and fighter_ship in player_shapes and fighter_ship.health > 0.0:
                         fighter_ship.recalling = True
                         fighter_ship.selected = False  # stop being commanded by the player
+                        # Play dock command sound
+                        try:
+                            sound_manager = get_sound_manager()
+                            sound_manager.on_dock_command()
+                        except Exception:
+                            pass
 
                 hangar_slot['show_button'] = False  # hide button after click
                 clicked_ui = True

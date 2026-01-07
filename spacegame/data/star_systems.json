@@ -10,34 +10,30 @@
       {
         "name": "Asteroid Cluster Alpha",
         "type": "Asteroids",
-        "ore": "M",
+        "ore": "A",
         "position": [-120, 40],
-        "tier": 0,
-        "purity": 0.5
+        "tier": 1
       },
       {
         "name": "Asteroid Cluster Beta",
         "type": "Asteroids",
-        "ore": "M",
+        "ore": "B",
         "position": [-40, 80],
-        "tier": 0,
-        "purity": 0.45
+        "tier": 1
       },
       {
         "name": "Asteroid Cluster Delta",
         "type": "Asteroids",
-        "ore": "M",
+        "ore": "C",
         "position": [80, 60],
-        "tier": 0,
-        "purity": 0.4
+        "tier": 1
       },
       {
         "name": "Asteroid Cluster Epsilon",
         "type": "Asteroids",
         "ore": "M",
         "position": [140, -80],
-        "tier": 0,
-        "purity": 0.35
+        "tier": 0
       }
     ]
   }

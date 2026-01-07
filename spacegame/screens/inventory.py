@@ -21,8 +21,8 @@ from spacegame.config import (
     UI_TAB_TEXT_COLOR,
     UI_NAV_BG_COLOR,
     UI_NAV_LINE_COLOR,
+    PREVIEWS_DIR
 )
-from spacegame.config import PREVIEWS_DIR
 from spacegame.ui.ui import UI_BG_IMG
 from spacegame.ui.nav_ui import create_tab_entries, draw_tabs, get_back_arrow_image
 from spacegame.core.modules_manager import manager as modules_manager

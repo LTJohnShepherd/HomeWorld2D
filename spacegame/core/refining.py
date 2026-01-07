@@ -2,6 +2,7 @@ import pygame
 from typing import List
 from spacegame.models.modules.refinerymodule import RefineryModule
 from spacegame.core.modules_manager import manager as modules_manager
+from spacegame.core.sound_manager import get_sound_manager
 
 
 class RefiningManager:
@@ -227,6 +228,13 @@ class RefiningManager:
                 inv_mgr.add_resource(out_letter, out_amount, preview=preview)
             except Exception:
                 pass
+
+        # Play refinement complete sound
+        try:
+            sound_manager = get_sound_manager()
+            sound_manager.on_refining_complete()
+        except Exception:
+            pass
 
         # Clear module refinement state
         module.refinement_total_ms = 0

@@ -3,6 +3,7 @@ from typing import List
 from spacegame.models.modules.fabricatormodule import FabricatorModule
 from spacegame.core.modules_manager import manager as modules_manager
 from spacegame.core.hangar import HangarEntry
+from spacegame.core.sound_manager import get_sound_manager
 
 
 class FabricationManager:
@@ -237,6 +238,13 @@ class FabricationManager:
                         inv_mgr.add_notification(notif)
                 except Exception:
                     pass
+        except Exception:
+            pass
+
+        # Play fabrication complete sound
+        try:
+            sound_manager = get_sound_manager()
+            sound_manager.on_fabrication_complete()
         except Exception:
             pass
 

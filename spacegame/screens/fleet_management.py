@@ -21,10 +21,8 @@ from spacegame.config import (
     UI_BG_COLOR, 
     UI_NAV_LINE_COLOR, 
     UI_TITLE_COLOR,
-    UI_TOP_BAR_HEIGHT,
-    UI_TAB_TEXT_SELECTED
+    UI_TOP_BAR_HEIGHT
     )
-from spacegame.config import UI_ICON_BLUE, UI_ICON_WHITE
 
 
 def _build_hangar_snapshot(main_player):

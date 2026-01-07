@@ -9,34 +9,33 @@ from spacegame.models.units.frigate import Frigate
 from spacegame.models.units.interceptor import Interceptor
 from spacegame.models.units.resource_collector import ResourceCollector
 from spacegame.models.units.plasma_bomber import PlasmaBomber
+from spacegame.models.units.space_station import SpaceStation
 from spacegame.models.asteroids.asteroida import MineableAsteroidA
 from spacegame.models.asteroids.asteroidb import MineableAsteroidB
 from spacegame.models.asteroids.asteroidc import MineableAsteroidC
 from spacegame.models.asteroids.asteroidm import MineableAsteroidM
 from spacegame.core.mover import Mover
-from spacegame.core.projectile import Projectile
 from spacegame.core import effects
 from spacegame.core.utils import spawn_enemy_wave, handle_auto_fire, handle_projectile_collisions
 from spacegame.core import events
 from spacegame.ui.hud_ui import HudUI
 from spacegame.ui.ui import Button, draw_triangle, draw_diamond, draw_dalton, draw_hex, OREM_PREVIEW_IMG
 from spacegame.core.fabrication import get_fabrication_manager
+from spacegame.core.sound_manager import get_sound_manager
 from spacegame.config import (
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
     FPS,
+    MAX_DT,
     SEPARATION_ITER,
     IMAGES_DIR,
     PREVIEWS_DIR,
     ENEMY_SPAWN_INTERVAL,
     ENEMY_SPAWN_COUNT,
-)
-from spacegame.config import (
-    MAX_DT,
     JUMP_CINEMATIC_BAR_FACTOR,
     JUMP_CINEMATIC_CLOSE_SPEED,
     STATION_HEALING_RATE,
-    SELECTION_MIN_PIXELS,
+    SELECTION_MIN_PIXELS
 )
 from spacegame.screens.internal_screen import internal_screen
 from spacegame.screens.galactic_map_screen import galactic_map_screen, _init_galactic_map_cache, preload_map_images
@@ -140,48 +139,79 @@ def spawn_asteroids_for_location(location_data):
     """Return a list of asteroids appropriate for the given location with random positions and counts."""
     if location_data is None or location_data.get('type') != 'Asteroids':
         return []
-    
+
     tier = location_data.get('tier', 0)
     ore_type = location_data.get('ore', 'M')
-    purity = location_data.get('purity', 0.5)
-    
+
     asteroids = []
-    
+
     # Generate random spawn area (roughly in visible area with padding)
     spawn_margin = 100
     max_x = SCREEN_WIDTH - spawn_margin
     max_y = SCREEN_HEIGHT - spawn_margin
     min_x = spawn_margin
     min_y = spawn_margin
-    
-    # Tier 0: Only M asteroids (random count 3-6)
-    if tier == 0:
-        count = random.randint(3, 6)
-        for _ in range(count):
-            pos = (random.randint(min_x, max_x), random.randint(min_y, max_y))
-            asteroids.append(MineableAsteroidM(pos, purity=purity))
-    
-    # Tier 1: A, B, C asteroids with varied purity based on ore type
-    elif tier == 1:
-        ore_purities = {
-            'A': 0.8 if ore_type == 'A' else 0.3,
-            'B': 0.8 if ore_type == 'B' else 0.3,
-            'C': 0.8 if ore_type == 'C' else 0.3,
-        }
-        
-        # Random count 5-10 asteroids
+
+    # Determine spawn count independent of tier: all locations have at most 10 asteroids.
+    # Tier affects asteroid tier and ore tier only, not count.
+    if ore_type == 'M':
+        count = random.randint(4, 10)
+    else:
         count = random.randint(5, 10)
-        asteroid_types = [MineableAsteroidA, MineableAsteroidB, MineableAsteroidC]
-        ore_keys = ['A', 'B', 'C']
-        
+
+    # If the visitable's ore is M, spawn only M asteroids at high purity
+    if ore_type == 'M':
         for _ in range(count):
             pos = (random.randint(min_x, max_x), random.randint(min_y, max_y))
-            asteroid_class = random.choice(asteroid_types)
-            ore_key = ore_keys[asteroid_types.index(asteroid_class)]
-            purity_val = ore_purities.get(ore_key, 0.5)
-            asteroids.append(asteroid_class(pos, purity=purity_val))
-    
+            asteroids.append(MineableAsteroidM(pos, tier=tier, purity=0.5))
+        return asteroids
+
+    # For non-M visitables, spawn A/B/C asteroids. The designated ore_type gets high purity (0.5),
+    # others get low purity (0.13).
+    high_purity = 0.5
+    low_purity = 0.13
+    ore_purities = {
+        'A': high_purity if ore_type == 'A' else low_purity,
+        'B': high_purity if ore_type == 'B' else low_purity,
+        'C': high_purity if ore_type == 'C' else low_purity,
+    }
+
+    asteroid_map = {'A': MineableAsteroidA, 'B': MineableAsteroidB, 'C': MineableAsteroidC}
+
+    # Ensure at least one asteroid of each type A/B/C is present for non-M visitables.
+    ore_choices = ['A', 'B', 'C']
+    if count > 3:
+        ore_choices += [random.choice(['A', 'B', 'C']) for _ in range(count - 3)]
+    random.shuffle(ore_choices)
+
+    for ore_key in ore_choices:
+        pos = (random.randint(min_x, max_x), random.randint(min_y, max_y))
+        asteroid_class = asteroid_map[ore_key]
+        purity_val = ore_purities.get(ore_key, low_purity)
+        asteroids.append(asteroid_class(pos, tier=tier, purity=purity_val))
+
     return asteroids
+
+
+def spawn_station_for_location(location_data):
+    """Return a space station if the location is a station type, positioned at a fixed location."""
+    if location_data is None or location_data.get('type') != 'Station':
+        return None
+    
+    # Get the position from location data, or use center screen as default
+    position = location_data.get('position')
+    if position:
+        # Position is [x, y] from json, convert to screen coordinates
+        # Assuming position is relative; center on screen plus offset
+        spawn_x = SCREEN_WIDTH // 2 + position[0] - 300
+        spawn_y = SCREEN_HEIGHT // 2 + position[1]
+    else:
+        # Default to center of screen if no position specified
+        spawn_x = SCREEN_WIDTH // 2
+        spawn_y = SCREEN_HEIGHT // 2
+    
+    station = SpaceStation((spawn_x, spawn_y))
+    return station
 
 
 def play_jump_cinematic(main_player, player_fleet, prev_system, new_system, prev_area, new_area):
@@ -196,6 +226,13 @@ def play_jump_cinematic(main_player, player_fleet, prev_system, new_system, prev
     screen = pygame.display.get_surface()
     if screen is None:
         return
+
+    # Play hyperspace launch sound
+    try:
+        sound_manager = get_sound_manager()
+        sound_manager.on_hyperspace_launch()
+    except Exception:
+        pass
 
     clock = pygame.time.Clock()
     inv = getattr(main_player, 'inventory_manager', None)
@@ -413,6 +450,12 @@ def run_game():
         if isinstance(a, pygame.sprite.Sprite):
             asteroid_group.add(a)
 
+    # Spawn station if at a station location
+    station = spawn_station_for_location(location_data)
+    station_group = pygame.sprite.Group()
+    if station is not None and isinstance(station, pygame.sprite.Sprite):
+        station_group.add(station)
+
     # Only spawn enemies if at an asteroid location (not at a station)
     enemy_fleet = []
     if location_data and location_data.get('type') == 'Asteroids':
@@ -582,6 +625,19 @@ def run_game():
             for a in asteroids:
                 if isinstance(a, pygame.sprite.Sprite):
                     asteroid_group.add(a)
+
+            # Respawn station if at a station location
+            station_group.empty()
+            station = spawn_station_for_location(location_data)
+            if station is not None and isinstance(station, pygame.sprite.Sprite):
+                station_group.add(station)
+
+            # Play hyperspace complete sound (asteroids/station now drawn)
+            try:
+                sound_manager = get_sound_manager()
+                sound_manager.on_hyperspace_complete()
+            except Exception:
+                pass
 
             # Clear all enemies when location changes
             enemy_fleet = []
@@ -773,6 +829,13 @@ def run_game():
                     center_target = Vector2(event.pos)  # Target point for the group movement is where the player right-clicked
                     for s in selected_shapes:
                         s.mover.set_target(center_target + s.mover.formation_offset) # Set individual targets so shapes move in formation relative to the clicked position
+                    
+                    # Play move command sound
+                    try:
+                        sound_manager = get_sound_manager()
+                        sound_manager.on_move_command()
+                    except Exception:
+                        pass
 
         # --- Update cooldowns ---
         for s in player_fleet + enemy_fleet:
@@ -815,6 +878,13 @@ def run_game():
             # Remove from active ships; Hangar will take care of internal lists.
             if craft in player_fleet:
                 player_fleet.remove(craft)
+
+            # Play ship docking sound
+            try:
+                sound_manager = get_sound_manager()
+                sound_manager.on_ship_docking()
+            except Exception:
+                pass
 
             # Inform the Hangar (via InventoryManager) that this craft has successfully docked
             # so the corresponding slot becomes ready again.
@@ -882,6 +952,17 @@ def run_game():
             if isinstance(s, (Interceptor, ResourceCollector, PlasmaBomber)) and s.health <= 0.0
         ]
         for craft in dead_crafts:
+            # Play appropriate destruction sound
+            try:
+                sound_manager = get_sound_manager()
+                if isinstance(craft, ResourceCollector):
+                    sound_manager.on_unit_destroyed_collector()
+                elif isinstance(craft, (Interceptor, PlasmaBomber)):
+                    # Group interceptors and plasma bombers as strikegroup
+                    sound_manager.on_unit_destroyed_strikegroup()
+            except Exception:
+                pass
+            
             inv = getattr(main_player, 'inventory_manager', None)
             if inv is None or getattr(inv, 'hangar', None) is None:
                 raise RuntimeError("Hangar/InventoryManager not available on main_player; migration required")
@@ -897,6 +978,13 @@ def run_game():
         # remove sprites for any ships that were filtered out
         for e in prev_enemies:
             if e not in enemy_fleet:
+                # Play destruction sound for enemy frigates
+                try:
+                    if isinstance(e, PirateFrigate):
+                        sound_manager = get_sound_manager()
+                        sound_manager.on_unit_destroyed_frigate()
+                except Exception:
+                    pass
                 try:
                     e.kill()
                 except Exception:
@@ -924,6 +1012,12 @@ def run_game():
         except Exception:
             for a in asteroids:
                 a.draw(screen)
+
+        # Draw station if present
+        try:
+            station_group.draw(screen)
+        except Exception:
+            pass
 
         # Draw unit sprites (images)
         try:
